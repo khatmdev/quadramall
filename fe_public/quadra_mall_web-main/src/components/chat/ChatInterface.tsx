@@ -1,0 +1,586 @@
+import React, { useState, useEffect, useRef } from 'react';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { ChatService } from '@/api/ChatService';
+import { ChatMessage, Conversation, Notification } from '@/types/chat';
+import { api } from '@/main';
+import { toast } from '@/lib/toast';
+import type { AxiosError } from 'axios';
+import { isAxiosError } from 'axios';
+// TODO: Import auth context khi có
+// import { useAuth } from '@/context/AuthContext';
+
+type BackendErrorPayload = { message?: string; error?: string };
+
+// Extended interfaces for UI - mapping with backend DTOs
+interface ExtendedConversation extends Conversation {
+  storeName?: string;
+  pinned?: boolean;
+  lastMessage?: {
+    content: string;
+    timestamp: string;
+  };
+}
+
+interface ExtendedChatMessage extends ChatMessage {
+  content: string; // Map from backend 'content' field
+  timestamp: string; // Map from backend timestamp
+}
+
+interface ExtendedChatMessage extends ChatMessage {
+  read?: boolean;
+}
+
+const getCurrentUser = () => {
+  try {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return null;
+    return JSON.parse(userStr);
+  } catch {
+    return null;
+  }
+};
+
+const ChatInterface: React.FC = () => {
+  // Hooks luôn ở đầu component
+  const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [selectedVideos, setSelectedVideos] = useState<File[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [conversations, setConversations] = useState<ExtendedConversation[]>([]);
+  const [messages, setMessages] = useState<ExtendedChatMessage[]>([]);
+  const [filterType, setFilterType] = useState<'all' | 'unread' | 'pinned'>('all');
+  const [chatService] = useState(() => new ChatService(api));
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  const user = getCurrentUser();
+  const customerId = user && user.userId ? Number(user.userId) : null;
+
+  useEffect(() => {
+    if (!customerId) return;
+    const initializeChat = async () => {
+      try {
+        // Connect WebSocket
+        chatService.connect(
+          customerId,
+          () => {
+            console.log('ChatService: WebSocket connected successfully');
+            toast.success('Kết nối chat thành công');
+          },
+          (error) => {
+            console.error('ChatService: WebSocket connection error:', error);
+            toast.error('Không thể kết nối chat. Tin nhắn sẽ vẫn được lưu qua REST.');
+          }
+        );
+
+        // Set up message received callback
+        chatService.setOnMessageReceived((message: ChatMessage) => {
+          console.log('ChatService: New message received:', message);
+          const extendedMessage: ExtendedChatMessage = {
+            ...message,
+            content: message.messageText || '',
+            timestamp: message.createdAt || new Date().toISOString()
+          };
+          setMessages(prev => [...prev, extendedMessage]);
+          
+          // Update last message in conversation
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.id === message.conversationId 
+                ? { ...conv, lastMessage: { content: extendedMessage.content, timestamp: extendedMessage.timestamp } }
+                : conv
+            )
+          );
+        });
+
+        // Set up notification received callback
+        chatService.setOnNotificationReceived((notification: Notification) => {
+          console.log('ChatService: New notification received:', notification);
+          const t = notification.type?.toUpperCase?.();
+          if (t === 'ERROR') {
+            toast.error(notification.content);
+          } else {
+            toast.success(notification.content);
+          }
+        });
+
+        // Try to load user conversations (will be empty if endpoint not implemented)
+        console.log('Attempting to load conversations for customer:', customerId);
+        const userConversations = await chatService.getUserConversations(customerId);
+        console.log('Loaded conversations:', userConversations);
+        
+        // Fetch store info for each conversation
+        const conversationsWithStore: ExtendedConversation[] = [];
+        for (const conv of userConversations) {
+          console.log('Processing conversation:', conv);
+          try {
+            const storeInfo = await chatService.getStoreInfo(conv.storeId);
+            console.log('Store info for', conv.storeId, ':', storeInfo);
+            conversationsWithStore.push({
+              ...conv,
+              storeName: storeInfo.name,
+            });
+          } catch (error) {
+            console.warn(`Could not fetch store info for store ${conv.storeId}:`, error);
+            conversationsWithStore.push({
+              ...conv,
+              storeName: `Cửa hàng #${conv.storeId}`,
+            });
+          }
+        }
+        
+        console.log('Final conversations with store info:', conversationsWithStore);
+        setConversations(conversationsWithStore);
+        
+        // Fetch unread notifications and show a summary
+        try {
+          const unread = await chatService.getNotifications(customerId);
+          // Filter notifications where isRead = false
+          const unreadCount = unread.filter(notif => !notif.isRead).length;
+          if (unreadCount > 0) {
+            toast.success(`Bạn có ${unreadCount} thông báo chưa đọc`);
+          }
+        } catch {
+          // ignore
+        }
+        
+        console.log('ChatService: Initialization completed successfully');
+      } catch (error) {
+        console.error('ChatService: Error initializing chat:', error);
+        toast.error('Không thể khởi tạo chat');
+      }
+    };
+    initializeChat();
+
+    // Cleanup on unmount
+    return () => {
+      chatService.disconnect();
+      toast.error('Mất kết nối chat');
+    };
+  }, [chatService, customerId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleConversationSelect = async (conversationId: number) => {
+    console.log('Selecting conversation:', conversationId);
+    setSelectedConversation(conversationId);
+    
+    try {
+      // Load messages for selected conversation
+      console.log('Loading messages for conversation:', conversationId);
+      const convMessages = await chatService.getMessages(conversationId);
+      console.log('Loaded messages:', convMessages);
+      
+      // Map backend messages to extended format
+      const mappedMessages: ExtendedChatMessage[] = convMessages.map(msg => ({
+        ...msg,
+        content: msg.messageText || '',
+        timestamp: msg.createdAt || new Date().toISOString()
+      }));
+      
+      console.log('Mapped messages:', mappedMessages);
+      setMessages(mappedMessages);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+      setMessages([]);
+    }
+    
+    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+  };
+
+  const handleSendMessage = async () => {
+    if (!selectedConversation || (!newMessage.trim() && selectedImages.length === 0 && selectedVideos.length === 0)) {
+      return;
+    }
+
+    try {
+      const conversation = conversations.find(conv => conv.id === selectedConversation);
+      if (!conversation) {
+        console.error('Selected conversation not found');
+        return;
+      }
+
+      // Build REST payload (id & createdAt will be set by backend)
+      const payload = {
+        conversationId: selectedConversation,
+        senderId: customerId,
+        receiverId: conversation.storeId,
+        messageText: newMessage,
+        imageUrl: selectedImages.length > 0 ? URL.createObjectURL(selectedImages[0]) : undefined,
+        videoUrl: selectedVideos.length > 0 ? URL.createObjectURL(selectedVideos[0]) : undefined,
+        // Explicitly do not send isRead - let backend handle it
+      } as Omit<ChatMessage, 'id' | 'createdAt' | 'isRead'>;
+
+      console.log('Sending payload:', payload);
+
+      // Persist to backend first
+      const saved = await chatService.sendMessageRest(payload);
+
+      // Optionally, notify via WS if connected (fire-and-forget)
+      chatService.sendMessage(saved);
+
+      // Update UI with saved message
+      const extendedMessage: ExtendedChatMessage = {
+        ...saved,
+        content: saved.messageText || '',
+        timestamp: saved.createdAt || new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, extendedMessage]);
+
+      // Update last message for conversation
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === saved.conversationId
+            ? { ...conv, lastMessage: { content: extendedMessage.content, timestamp: extendedMessage.timestamp } }
+            : conv
+        )
+      );
+
+      // Clear input & selections
+      setNewMessage('');
+      setSelectedImages([]);
+      setSelectedVideos([]);
+
+      toast.success('Đã gửi tin nhắn');
+    } catch (error: unknown) {
+      console.error('Error sending message:', error);
+      let backendMsg = 'Gửi tin nhắn thất bại';
+      if (isAxiosError<BackendErrorPayload>(error)) {
+        const axiosErr = error as AxiosError<BackendErrorPayload>;
+        backendMsg = axiosErr.response?.data?.message || axiosErr.response?.data?.error || axiosErr.message || backendMsg;
+      }
+      toast.error(backendMsg);
+    }
+  };
+
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setNewMessage((prev) => prev + emojiData.emoji);
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages(selectedImages.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveVideo = (index: number) => {
+    setSelectedVideos(selectedVideos.filter((_, i) => i !== index));
+  };
+
+  const handleAddImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      setSelectedImages([...selectedImages, ...Array.from(event.target.files)]);
+    }
+  };
+
+  const handleAddVideo = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      setSelectedVideos([...selectedVideos, ...Array.from(event.target.files)]);
+    }
+  };
+
+  const getAvatarUrl = (senderId: number) => {
+    // For now, use static avatars since we don't have user/store avatar APIs
+    if (senderId === customerId) {
+      return '/assets/images/default_user_avatar.jpg';
+    } else {
+      return '/assets/images/default_store_avatar.jpg';
+    }
+  };
+
+  const getStoreLogo = () => {
+    // For now, use static logo
+    // TODO: Get actual store logo when store API is available
+    return '/assets/images/default_store_avatar.jpg';
+  };
+
+  // Kiểm tra đăng nhập sau khi gọi hooks
+  if (!user || !customerId) {
+    return (
+      <div className="container mx-auto h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-4">Cần đăng nhập</h2>
+          <p className="text-gray-600 mb-4">Bạn cần đăng nhập để sử dụng tính năng chat</p>
+          <a href="/login" className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">
+            Đăng nhập
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto h-screen flex p-4">
+      {/* Nút mở sidebar trên desktop nhỏ */}
+      <div className="lg:hidden mb-2">
+        <button
+          className="p-2 bg-gray-200 rounded-md"
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        >
+          {isSidebarOpen ? '✖' : '☰'}
+        </button>
+      </div>
+
+      {/* Danh sách cuộc trò chuyện */}
+      <div
+        className={`${
+          isSidebarOpen ? 'block' : 'hidden'
+        } lg:block w-full lg:w-1/3 border-r border-gray-200 bg-gray-50 transition-all duration-300`}
+      >
+        <h2 className="text-xl font-bold p-4 border-b border-gray-200">Tin nhắn</h2>
+        {/* Thanh tìm kiếm */}
+        <div className="p-4 border-b border-gray-200">
+          <input
+            type="text"
+            placeholder="Tìm kiếm..."
+            className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+            onChange={(e) => {
+              const searchText = e.target.value.toLowerCase();
+              // Simple search by store name - placeholder for when store API is available  
+              const filteredConversations = conversations.filter(conv => 
+                (conv.storeName || '').toLowerCase().includes(searchText)
+              );
+              // Note: In production, this should call backend search API
+              console.log('Searching for:', searchText, 'Results:', filteredConversations.length);
+            }}
+          />
+        </div>
+        {/* Phần chọn tin nhắn với 3 nút */}
+        <div className="p-4 border-b border-gray-200 flex space-x-2">
+          <button
+            className={`px-4 py-2 rounded-md ${
+              filterType === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+            onClick={() => setFilterType('all')}
+          >
+            Tất cả
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md ${
+              filterType === 'unread' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+            onClick={() => setFilterType('unread')}
+          >
+            Chưa đọc
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md ${
+              filterType === 'pinned' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+            onClick={() => setFilterType('pinned')}
+          >
+            Đã ghim
+          </button>
+        </div>
+        <div className="overflow-y-auto h-[calc(100vh-200px)] lg:h-[calc(100vh-140px)]">
+          {conversations.map((conv) => {
+            return (
+              <div
+                key={conv.id}
+                className={`p-4 cursor-pointer hover:bg-gray-100 ${
+                  selectedConversation === conv.id ? 'bg-blue-100' : ''
+                }`}
+                onClick={() => handleConversationSelect(conv.id)}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center">
+                    <img
+                      src={getStoreLogo()}
+                      alt={`Store Logo`}
+                      className="w-10 h-10 rounded-full mr-2"
+                    />
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{conv.storeName || 'Cửa hàng'}</h3>
+                      <p className="text-sm text-gray-600 truncate">
+                        {conv.lastMessage?.content || 'Chưa có tin nhắn nào'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {conv.lastMessage 
+                      ? new Date(conv.lastMessage.timestamp).toLocaleTimeString('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : ''
+                    }
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Khu vực chat */}
+      <div className="w-full lg:w-2/3 flex flex-col h-screen">
+        {selectedConversation ? (
+          <>
+            {/* Header với logo và tên cửa hàng */}
+            <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center">
+              <img
+                src={getStoreLogo()}
+                alt="Store Logo"
+                className="w-10 h-10 rounded-full mr-2"
+              />
+              <h2 className="text-xl font-bold">
+                {conversations.find((conv) => conv.id === selectedConversation)?.storeName || 'Cửa hàng'}
+              </h2>
+            </div>
+            {/* Khu vực hiển thị tin nhắn */}
+            <div className="flex-1 p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+              {messages.map((msg) => {
+                const isUser = msg.senderId === customerId;
+                const avatarUrl = getAvatarUrl(msg.senderId);
+                return (
+                  <div
+                    key={msg.id}
+                    className={`mb-4 flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                  >
+                    {!isUser && (
+                      <img
+                        src={avatarUrl}
+                        alt={isUser ? 'Customer' : 'Store'}
+                        className="w-8 h-8 rounded-full mr-2"
+                      />
+                    )}
+                    <div
+                      className={`max-w-xs p-3 rounded-lg ${
+                        isUser ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'
+                      }`}
+                    >
+                      <p>{msg.content}</p>
+                      <span className="text-xs text-gray-400">
+                        {new Date(msg.timestamp).toLocaleTimeString('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                    {isUser && (
+                      <img
+                        src={avatarUrl}
+                        alt={isUser ? 'Customer' : 'Store'}
+                        className="w-8 h-8 rounded-full ml-2"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Phần nhập văn bản và nút chat - Sử dụng sticky để cố định ở dưới */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50 sticky bottom-0 bg-white z-10">
+              {(selectedImages.length > 0 || selectedVideos.length > 0) && (
+                <div className="mb-2 flex space-x-2">
+                  {selectedImages.map((image, index) => (
+                    <div key={index} className="relative">
+                      <img src={URL.createObjectURL(image)} alt="Preview" className="w-16 h-16 object-cover" />
+                      <button
+                        className="absolute top-0 right-0 bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-xs"
+                        onClick={() => handleRemoveImage(index)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {selectedVideos.map((video, index) => (
+                    <div key={index} className="relative">
+                      <video controls src={URL.createObjectURL(video)} className="w-16 h-16 object-cover" />
+                      <button
+                        className="absolute top-0 right-0 bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-xs"
+                        onClick={() => handleRemoveVideo(index)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <label className="flex items-center justify-center w-16 h-16 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:border-gray-500">
+                    <span className="text-gray-500 text-xl">+</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAddImage}
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Nhập tin nhắn..."
+                  className="flex-1 p-2 border rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                />
+                <div className="flex space-x-2 ml-2 relative" ref={emojiPickerRef}>
+                  <button
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  >
+                    😊
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute bottom-10 right-24 z-10">
+                      <EmojiPicker onEmojiClick={onEmojiClick} />
+                    </div>
+                  )}
+                  <label className="text-gray-500 hover:text-gray-700 cursor-pointer">
+                    📷
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAddImage}
+                    />
+                  </label>
+                  <label className="text-gray-500 hover:text-gray-700 cursor-pointer">
+                    🎥
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handleAddVideo}
+                    />
+                  </label>
+                  <button
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={() => alert('Xem sản phẩm của shop')}
+                  >
+                    🛒
+                  </button>
+                  <button
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={() => alert('Xem đơn hàng của shop')}
+                  >
+                    📦
+                  </button>
+                </div>
+                <button
+                  onClick={handleSendMessage}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 ml-2"
+                >
+                  Gửi
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-500">Chọn một cuộc trò chuyện để bắt đầu</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ChatInterface;
