@@ -1,0 +1,6 @@
+
+# Chạy train.py mỗi ngày lúc 2:00 AM
+0 2 * * * /usr/local/bin/python /app/src/train.py >> /app/app.log 2>&1
+
+
+# Thêm dòng trống ở cuối file (bắt buộc cho cron)

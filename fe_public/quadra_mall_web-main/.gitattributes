@@ -1,0 +1,11 @@
+# Force consistent line endings (LF) for all text files
+* text=auto eol=lf
+
+# Optional: define binary files to prevent Git from messing with line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.mp4  binary
+*.zip  binary
+*.exe  binary
