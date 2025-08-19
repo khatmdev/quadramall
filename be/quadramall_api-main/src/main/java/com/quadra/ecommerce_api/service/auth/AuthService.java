@@ -303,7 +303,8 @@ public class AuthService {
                 user.getPhone(),
                 user.getAvatarUrl(),
                 roleDTOs,
-                storeIds
+                storeIds,
+                user.getId() // Truyền userId vào response
         );
     }
 

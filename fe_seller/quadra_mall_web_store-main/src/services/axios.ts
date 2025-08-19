@@ -95,3 +95,5 @@ export const createApi = () => {
 
   return api;
 };
+
+export { axios };
