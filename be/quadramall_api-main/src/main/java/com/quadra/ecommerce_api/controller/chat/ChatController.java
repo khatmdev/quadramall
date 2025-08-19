@@ -34,25 +34,28 @@ public class ChatController {
         // Lưu tin nhắn và tạo notification qua ChatService
         ChatMessageDTO savedMessage = chatService.sendMessage(chatMessageDTO);
 
-        // Broadcast tin nhắn đến receiver
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(savedMessage.getReceiverId()),
-                "/queue/messages",
-                savedMessage
-        );
+    // Việc broadcast tin nhắn đã được ChatService xử lý (topic + user queues)
+    // Nếu cần gửi thêm custom channel khác có thể bổ sung ở đây.
 
-        // Tạo NotificationDTO
+        // Tạo NotificationDTO đúng logic
         NotificationDTO notificationDTO = new NotificationDTO();
-        notificationDTO.setUserId(savedMessage.getReceiverId().equals(savedMessage.getSenderId()) ? null : savedMessage.getReceiverId());
-        notificationDTO.setStoreId(savedMessage.getReceiverId().equals(savedMessage.getSenderId()) ? savedMessage.getReceiverId() : null);
+        // Logic: nếu receiverId > 1000 thì là store, ngược lại là user
+        if (savedMessage.getReceiverId() > 1000) {
+            notificationDTO.setStoreId(savedMessage.getReceiverId());
+            notificationDTO.setUserId(null);
+        } else {
+            notificationDTO.setUserId(savedMessage.getReceiverId());
+            notificationDTO.setStoreId(null);
+        }
         notificationDTO.setContent("Tin nhắn mới từ user " + savedMessage.getSenderId());
         notificationDTO.setType("message");
         notificationDTO.setCreatedAt(savedMessage.getCreatedAt());
         notificationDTO.setRead(false);
 
-        // Broadcast thông báo
-        messagingTemplate.convertAndSend(
-                "/topic/notifications/" + savedMessage.getReceiverId(),
+        // Broadcast thông báo với path chuẩn
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(savedMessage.getReceiverId()),
+                "/queue/notifications",
                 notificationDTO
         );
 

@@ -137,9 +137,10 @@ const authSlice = createSlice({
       };
       state.isAuthenticated = true;
       state.storeIds = action.payload.storeIds || [];
-      localStorage.setItem('user', JSON.stringify(state.user));
-      localStorage.setItem('token', action.payload.token);
-      localStorage.setItem('refreshToken', action.payload.refreshToken);
+  localStorage.setItem('user', JSON.stringify(state.user));
+  localStorage.setItem('token', action.payload.token);
+  localStorage.setItem('refreshToken', action.payload.refreshToken);
+  localStorage.setItem('userId', String(action.payload.userId));
 
       // Check if user has SELLER role and no stores
       const hasSellerRole = action.payload.roles.some((role) => role.name === 'SELLER');

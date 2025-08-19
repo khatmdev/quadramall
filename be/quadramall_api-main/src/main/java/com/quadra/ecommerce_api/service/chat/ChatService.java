@@ -14,6 +14,7 @@ import com.quadra.ecommerce_api.repository.conversation.ConversationRepo;
 import com.quadra.ecommerce_api.repository.conversation.MessageRepo;
 import com.quadra.ecommerce_api.repository.conversation.NotificationChatRepo;
 import jakarta.transaction.Transactional;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -28,14 +29,17 @@ public class ChatService {
     private final MessageRepo messageRepo;
     private final NotificationChatRepo notificationRepo;
     private final ChatMapper chatMapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Autowired
     public ChatService(ConversationRepo conversationRepo, MessageRepo messageRepo,
-                       NotificationChatRepo notificationRepo, ChatMapper chatMapper) {
+                       NotificationChatRepo notificationRepo, ChatMapper chatMapper,
+                       SimpMessagingTemplate messagingTemplate) {
         this.conversationRepo = conversationRepo;
         this.messageRepo = messageRepo;
         this.notificationRepo = notificationRepo;
         this.chatMapper = chatMapper;
+        this.messagingTemplate = messagingTemplate;
     }
 
 
@@ -82,6 +86,10 @@ public class ChatService {
         // Trả về ChatMessageDTO
         chatMessageDTO.setId(message.getId());
         chatMessageDTO.setCreatedAt(message.getCreatedAt());
+        
+        // Broadcast realtime qua WebSocket
+        broadcastMessage(chatMessageDTO);
+        
         return chatMessageDTO;
     }
 
@@ -177,6 +185,33 @@ public class ChatService {
         } else {
             throw new IllegalArgumentException("Phải cung cấp userId hoặc storeId");
         }
+    }
+
+    /**
+     * Broadcast tin nhắn realtime qua WebSocket
+     */
+    private void broadcastMessage(ChatMessageDTO message) {
+    // 1. Broadcast theo conversation (mọi client mở cùng cuộc trò chuyện đều nhận được – không phụ thuộc Principal)
+    if (message.getConversationId() != null) {
+        messagingTemplate.convertAndSend(
+            "/topic/conversations/" + message.getConversationId(),
+            message
+        );
+    }
+
+    // 2. Gửi tin nhắn đến receiver (nếu frontend có subscribe user queue và Principal được gán)
+    messagingTemplate.convertAndSendToUser(
+        String.valueOf(message.getReceiverId()),
+        "/queue/messages",
+        message
+    );
+
+    // 3. Gửi tin nhắn đến sender (để sync multi-device)
+    messagingTemplate.convertAndSendToUser(
+        String.valueOf(message.getSenderId()),
+        "/queue/messages",
+        message
+    );
     }
 
 

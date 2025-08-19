@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiPlus, FiMessageCircle, FiCheck } from 'react-icons/fi';
 import { ShopDetailDto, StoreFavoriteRequestDto } from '@/types/store_detail/interfaces';
 import { storeService } from '@/api/storeService';
@@ -10,6 +11,13 @@ interface StoreHeaderProps {
 }
 
 const StoreHeader: React.FC<StoreHeaderProps> = ({ storeInfo, onToggleFavorite }) => {
+  const navigate = useNavigate();
+
+  const handleChat = () => {
+    // Open ChatInterface route and pass storeId and storeName via query string
+    const params = new URLSearchParams({ storeId: String(storeInfo.storeId), storeName: storeInfo.storeName });
+    navigate(`/ChatInterface?${params.toString()}`);
+  };
   // Hàm format số thành dạng ngắn gọn (1000 → "1k+")
   const formatNumber = (num: number): string => {
     if (num >= 1000) {
@@ -94,7 +102,7 @@ const StoreHeader: React.FC<StoreHeaderProps> = ({ storeInfo, onToggleFavorite }
                 {storeInfo.favorite ? <FiCheck size={16} /> : <FiPlus size={16} />}
                 {storeInfo.favorite ? 'Đã theo dõi' : 'Theo dõi'}
               </button>
-              <button className="flex items-center gap-1 border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md text-sm font-medium">
+              <button onClick={handleChat} className="flex items-center gap-1 border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md text-sm font-medium">
                 <FiMessageCircle size={16} />
                 Chat
               </button>

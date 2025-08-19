@@ -23,6 +23,7 @@ public class LoginResponse {
     private String avatarUrl;
     private Set<RoleDTO> roles;
     private List<Long> storeIds; // Thêm trường này
+    private Long userId;
 
 
 }
