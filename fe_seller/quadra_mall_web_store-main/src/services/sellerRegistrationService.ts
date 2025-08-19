@@ -5,7 +5,7 @@ import {
     SellerRegistrationResponse,
     RegistrationUpdateRequest,
     RegistrationDetails,
-    ApiResponse
+    ApiResponse, StoreInfoDto
 } from '@/types/sellerRegistration';
 
 export const sellerRegistrationApi = (api: AxiosInstance) => {
@@ -57,12 +57,28 @@ export const sellerRegistrationApi = (api: AxiosInstance) => {
         getCurrentUserRegistration: async (): Promise<RegistrationDetails | null> => {
             try {
                 const response = await api.get<ApiResponse<RegistrationDetails>>('/seller-registrations/current-user');
+
+                // Kiểm tra nếu data null (user chưa có đăng ký)
+                if (!response.data.data) {
+                    return null;
+                }
+
                 return response.data.data;
             } catch (error: any) {
-                if (error.response?.status === 404) {
-                    return null; // User chưa có đăng ký nào
-                }
-                console.error('Lỗi khi lấy trạng thái đăng ký:', error);
+                // Không cần xử lý 400/404 như lỗi nữa
+                // Chỉ log và trả về null
+                console.log('User chưa có đăng ký nào:', error.response?.data?.message || error.message);
+                return null;
+            }
+        },
+
+        // Hàm lấy danh sách stores của user hiện tại
+        getCurrentUserStores: async (): Promise<StoreInfoDto[]> => {
+            try {
+                const response = await api.get<ApiResponse<StoreInfoDto[]>>('/seller/user-store/stores');
+                return response.data.data;
+            } catch (error) {
+                console.error('Lỗi khi lấy danh sách cửa hàng:', error);
                 throw error;
             }
         },

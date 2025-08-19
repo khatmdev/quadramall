@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import type { RootState } from '@/store';
 import { createApi } from '@/services/axios';
 import { sellerRegistrationApi } from '@/services/sellerRegistrationService';
@@ -27,7 +28,8 @@ const api = createApi();
 const sellerApi = sellerRegistrationApi(api);
 
 const ShopRegistration: React.FC = () => {
-    const { user } = useSelector((state: RootState) => state.auth);
+    const { user, storeIds } = useSelector((state: RootState) => state.auth);
+    const navigate = useNavigate();
     const [registrationData, setRegistrationData] = useState<RegistrationDetails | null>(null);
     const [showWelcome, setShowWelcome] = useState(true);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -72,48 +74,75 @@ const ShopRegistration: React.FC = () => {
                 if (currentRegistration) {
                     setRegistrationData(currentRegistration);
 
-                    // Xử lý theo trạng thái
+                    // Xử lý theo trạng thái - ưu tiên hiển thị trạng thái đăng ký trước
                     switch (currentRegistration.status) {
                         case RegistrationStatus.PENDING:
                             console.log('Status: PENDING - showing PendingScreen');
                             setShowWelcome(false);
                             setShowEditPage(false);
+                            setShowSuccess(false);
                             break;
 
                         case RegistrationStatus.REJECTED:
                             console.log('Status: REJECTED - showing EditPage');
                             setShowWelcome(false);
                             setShowEditPage(true);
+                            setShowSuccess(false);
                             break;
 
                         case RegistrationStatus.APPROVED:
-                            console.log('Status: APPROVED - showing SuccessScreen');
+                            console.log('Status: APPROVED - user can register new store');
+                            // User đã có cửa hàng được duyệt, có thể đăng ký cửa hàng mới
                             setShowWelcome(false);
                             setShowEditPage(false);
-                            setShowSuccess(true);
+                            setShowSuccess(false);
+                            setRegistrationData(null); // Reset để cho phép đăng ký mới
                             break;
 
                         default:
                             console.log('Unknown status, showing WelcomeScreen');
                             setShowWelcome(true);
                             setShowEditPage(false);
+                            setShowSuccess(false);
                             break;
                     }
                 } else {
-                    console.log('No registration data, showing WelcomeScreen');
-                    setShowWelcome(true);
+                    console.log('No pending/rejected registration, check if user should go to SelectStore or register new');
+                    // Không có đăng ký PENDING/REJECTED
+                    // Kiểm tra xem user có cửa hàng được duyệt không
+                    if (storeIds && storeIds.length > 0) {
+                        console.log('User has approved stores, redirect to SelectStore');
+                        navigate('/select-store', { replace: true });
+                        return;
+                    }
+
+                    // Nếu không có cửa hàng nào, hiển thị form đăng ký mới
+                    console.log('No approved stores, show registration form');
+                    setShowWelcome(false);
                     setShowEditPage(false);
+                    setShowSuccess(false);
+                    setRegistrationData(null);
                 }
             } catch (error: any) {
-                console.log('Error or no registration found:', error);
-                // Nếu null hoặc 404 - user chưa có đăng ký
-                setShowWelcome(true);
+                console.log('Error checking registration:', error);
+                // Khi có lỗi - kiểm tra xem có cửa hàng được duyệt không
+                if (storeIds && storeIds.length > 0) {
+                    console.log('Error but user has approved stores, redirect to SelectStore');
+                    navigate('/select-store', { replace: true });
+                    return;
+                }
+
+                // Nếu không có cửa hàng, hiển thị form đăng ký
+                console.log('Error and no approved stores, show registration form');
+                setShowWelcome(false);
                 setShowEditPage(false);
+                setShowSuccess(false);
+                setRegistrationData(null);
             }
         };
 
         checkRegistrationStatus();
-    }, [user]);
+    }, [user, navigate, storeIds]);
 
     // Cập nhật formData khi dữ liệu người dùng thay đổi
     useEffect(() => {
@@ -256,7 +285,7 @@ const ShopRegistration: React.FC = () => {
 
             console.log('Đăng ký cửa hàng thành công:', response);
 
-            // Chuyển sang PendingScreen
+            // Chuyển sang PendingScreen sau khi đăng ký thành công
             setRegistrationData({
                 id: response.id,
                 storeName: response.storeName,
@@ -264,8 +293,33 @@ const ShopRegistration: React.FC = () => {
                 email: response.email,
                 createdAt: response.createdAt,
             } as RegistrationDetails);
+
+            // Reset form và chuyển về step 1 để chuẩn bị cho lần đăng ký tiếp theo
+            setCurrentStep(1);
+            setFormData({
+                shopName: '',
+                email: user.email || '',
+                phone: user.phoneNumber || '',
+                pickupContactPhone: '',
+                pickupContactName: '',
+                fullName: '',
+                address: '',
+                city: '',
+                district: '',
+                ward: '',
+                description: '',
+                idNumber: '',
+                idFrontImage: null,
+                idBackImage: null,
+                businessLicense: null,
+                logo: null,
+            });
+            setErrors({});
+
+            // Cập nhật states để hiển thị PendingScreen
             setShowWelcome(false);
             setShowEditPage(false);
+            setShowSuccess(false);
 
         } catch (error: any) {
             console.error('Đăng ký thất bại:', error);
@@ -318,16 +372,17 @@ const ShopRegistration: React.FC = () => {
         );
     }
 
-    // Hiển thị WelcomeScreen cho người dùng chưa đăng ký
-    if (showWelcome && !registrationData) {
-        return <WelcomeScreen onStart={() => setShowWelcome(false)} />;
-    }
-
-    // Hiển thị SuccessScreen khi được approved
+    // Hiển thị SuccessScreen khi được approved (chỉ hiển thị tạm thời sau khi submit thành công)
     if (showSuccess) {
         return <SuccessScreen />;
     }
 
+    // Hiển thị WelcomeScreen cho người dùng mới
+    if (showWelcome) {
+        return <WelcomeScreen onStart={() => setShowWelcome(false)} />;
+    }
+
+    // Mặc định hiển thị form đăng ký (khi không có đăng ký PENDING/REJECTED)
     const renderCurrentStep = () => {
         switch (currentStep) {
             case 1:
