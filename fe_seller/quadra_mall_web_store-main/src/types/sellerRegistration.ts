@@ -123,3 +123,16 @@ export interface ApiResponse<T> {
     message?: string;
     errors?: string[];
 }
+
+export interface StoreInfoDto {
+    id: number;
+    name: string;
+    slug: string;
+    address?: string;
+    description?: string;
+    logoUrl?: string;
+    status: StoreStatus;
+    lockReason?: string;
+    createdAt: string;
+    updatedAt: string;
+}

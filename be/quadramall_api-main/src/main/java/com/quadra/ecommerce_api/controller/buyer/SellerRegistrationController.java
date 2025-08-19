@@ -39,6 +39,11 @@ public class SellerRegistrationController extends AbstractBuyerController {
     @GetMapping("/current-user")
     public ResponseEntity<ApiResponse<RegistrationDetailsDto>> getCurrentUserRegistration() {
         RegistrationDetailsDto detailsDto = sellerRegistrationService.getCurrentUserRegistration();
+
+        if (detailsDto == null) {
+            return ok(null, "Người dùng chưa có đăng ký cửa hàng nào");
+        }
+
         return ok(detailsDto);
     }
 

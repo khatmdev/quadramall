@@ -16,9 +16,11 @@ import {
     X,
     Upload,
     ArrowLeft,
-    CheckCircle
+    CheckCircle,
+    Store
 } from 'lucide-react';
 import { toast, ToastContainer } from 'react-toastify';
+import { useNavigate } from 'react-router-dom';
 
 // Khởi tạo API
 const api = createApi();
@@ -33,7 +35,12 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
                                                                        registrationData,
                                                                        onBackToPending
                                                                    }) => {
-    const { user } = useSelector((state: RootState) => state.auth);
+    const { user, storeIds } = useSelector((state: RootState) => state.auth);
+    const navigate = useNavigate();
+
+    // Kiểm tra xem user đã có cửa hàng nào chưa (logic giống SelectStore)
+    const hasExistingStores = storeIds && storeIds.length > 0;
+
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [editingField, setEditingField] = useState<string | null>(null);
     const [formData, setFormData] = useState({
@@ -386,6 +393,10 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
         }
     };
 
+    const handleGoToSelectStore = () => {
+        navigate('/select-store');
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 py-8">
             <ToastContainer />
@@ -466,11 +477,22 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
 
                 {/* Submit button */}
                 <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
-                    <div className="flex justify-end">
+                    <div className="flex justify-between items-center">
+                        {/* Nút chuyển đến SelectStore nếu user đã có stores */}
+                        {hasExistingStores && (
+                            <button
+                                onClick={handleGoToSelectStore}
+                                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2"
+                            >
+                                <Store className="w-5 h-5" />
+                                Quản lý cửa hàng hiện có
+                            </button>
+                        )}
+
                         <button
                             onClick={handleSubmit}
                             disabled={isSubmitting || editingField !== null}
-                            className="px-8 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2"
+                            className="px-8 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2 ml-auto"
                         >
                             {isSubmitting ? (
                                 <>

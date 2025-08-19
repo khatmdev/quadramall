@@ -12,7 +12,7 @@ import {
   setOnNotificationReceived,
   ConversationDTO,
   ChatMessageDTO
-} from '@/services/ChatService';
+} from '@/services/chatService';
 
 const ChatInterface: React.FC = () => {
   // Lấy từ localStorage thay vì hardcode

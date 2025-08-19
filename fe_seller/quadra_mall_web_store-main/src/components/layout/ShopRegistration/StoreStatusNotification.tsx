@@ -6,12 +6,13 @@ import { StoreStatus } from '@/types/sellerRegistration';
 interface StoreStatusNotificationProps {
     status?: StoreStatus;
     storeName?: string;
+    lockReason?: string;
 }
 
 const StoreStatusNotification: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { status, storeName } = location.state as StoreStatusNotificationProps || {};
+    const { status, storeName, lockReason } = location.state as StoreStatusNotificationProps || {};
 
     const getStatusConfig = (status: StoreStatus) => {
         switch (status) {
@@ -34,7 +35,7 @@ const StoreStatusNotification: React.FC = () => {
                     borderColor: 'border-red-200',
                     textColor: 'text-red-800',
                     message: 'Cửa hàng của bạn đã bị khóa do vi phạm chính sách.',
-                    description: 'Vui lòng kiểm tra email để biết lý do cụ thể và hướng dẫn khắc phục. Liên hệ với bộ phận hỗ trợ nếu cần thêm thông tin.',
+                    description: lockReason || 'Vui lòng kiểm tra email để biết lý do cụ thể và hướng dẫn khắc phục. Liên hệ với bộ phận hỗ trợ nếu cần thêm thông tin.',
                     actionText: 'Liên hệ hỗ trợ'
                 };
             case StoreStatus.REPORTED:
@@ -102,6 +103,14 @@ const StoreStatusNotification: React.FC = () => {
                         {config.description}
                     </p>
                 </div>
+
+                {/* Lock Reason (if LOCKED and has reason) */}
+                {status === StoreStatus.LOCKED && lockReason && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                        <h4 className="font-medium text-red-800 mb-2">Lý do khóa cụ thể:</h4>
+                        <p className="text-red-700 text-sm">{lockReason}</p>
+                    </div>
+                )}
 
                 {/* Contact Info */}
                 <div className="bg-gray-50 rounded-lg p-4 mb-6">

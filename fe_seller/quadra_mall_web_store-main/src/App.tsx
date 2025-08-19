@@ -23,6 +23,7 @@ import ResetPassword from './components/auth/Forgot/ResetPassword';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import SellerRoute from '@/components/share/SellerRoute';
 import SelectStore from '@/components/share/SelectStore';
+import StoreStatusNotification from '@/components/layout/ShopRegistration/StoreStatusNotification';
 import FlashSaleManagement from './components/screen/FlashSaleManagement';
 import DiscountManagement from '@/components/layout/Coupon/DiscountManagement';
 import OrderManagementPage from './components/layout/Order/OrderManagementPage';
@@ -35,16 +36,27 @@ function App() {
 
     useEffect(() => {
         console.log('[App] useEffect triggered:', { isAuthenticated, storeIds, selectedStoreId, pathname: location.pathname });
+
         if (isAuthenticated) {
-            if (storeIds.length > 0 && !selectedStoreId && location.pathname !== '/select-store') {
-                console.log('[App] Redirecting to /select-store: no selectedStoreId');
-                navigate('/select-store', { replace: true });
-            } else if (storeIds.length === 0 && location.pathname !== '/registration') {
-                console.log('[App] Redirecting to /registration: no storeIds');
-                navigate('/registration', { replace: true });
-            } else if (selectedStoreId && (location.pathname === '/login' || location.pathname === '/register')) {
-                navigate('/', { replace: false });
+            // Cho phép user ở lại các trang này mà không redirect
+            const allowedPaths = ['/registration', '/select-store', '/store-status'];
+            if (allowedPaths.includes(location.pathname)) {
+                console.log('[App] User at allowed page, no redirect needed');
+                return;
             }
+
+            // Nếu user có cửa hàng được duyệt và đã chọn store, cho phép truy cập dashboard
+            if (storeIds.length > 0 && selectedStoreId) {
+                if (location.pathname === '/login' || location.pathname === '/register') {
+                    console.log('[App] Redirecting to dashboard: user logged in with selected store');
+                    navigate('/', { replace: false });
+                }
+                return;
+            }
+
+            // Tất cả các trường hợp khác -> redirect đến /registration để kiểm tra trạng thái
+            console.log('[App] Redirecting to /registration to check registration status');
+            navigate('/registration', { replace: true });
         } else {
             console.log('[App] User not authenticated, no redirect');
         }
@@ -62,6 +74,7 @@ function App() {
                 <Route path="/auth/success" element={<OAuth2Callback />} />
                 <Route path="/auth/error" element={<OAuth2Callback />} />
                 <Route path="/select-store" element={<SelectStore />} />
+                <Route path="/store-status" element={<StoreStatusNotification />} />
                 <Route element={<Layout />}>
                     <Route element={<SellerRoute />}>
                         <Route path="/" element={<Dashboard />} />
@@ -78,7 +91,7 @@ function App() {
                         <Route path="/reviews" element={<ReviewManagement />} />
                         <Route path="/reviews/:productId" element={<ProductReviewDetail />} />
                         <Route path="/flashsale" element={<FlashSaleManagement/>}/>
-                        
+
                     </Route>
                 </Route>
             </Routes>

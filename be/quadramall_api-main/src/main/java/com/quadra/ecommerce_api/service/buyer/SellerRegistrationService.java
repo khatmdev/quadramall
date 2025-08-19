@@ -37,6 +37,7 @@ public class SellerRegistrationService {
 
     /**
      * Lấy trạng thái đăng ký của user hiện tại (chỉ PENDING hoặc REJECTED)
+     * Trả về null nếu không tìm thấy đăng ký nào
      */
     public RegistrationDetailsDto getCurrentUserRegistration() {
         // Lấy User từ SecurityContextHolder
@@ -49,11 +50,8 @@ public class SellerRegistrationService {
                         Arrays.asList(RegistrationStatus.PENDING, RegistrationStatus.REJECTED)
                 );
 
-        if (registrationOpt.isEmpty()) {
-            throw new IllegalArgumentException("Người dùng chưa có đăng ký cửa hàng nào đang chờ xử lý");
-        }
-
-        return registrationMapper.toDetailsDto(registrationOpt.get());
+        // Trả về null thay vì throw exception khi không tìm thấy
+        return registrationOpt.map(registrationMapper::toDetailsDto).orElse(null);
     }
 
     /**
