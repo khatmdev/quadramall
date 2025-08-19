@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { ChatService } from '@/api/ChatService';
 import { ChatMessage, Conversation, Notification } from '@/types/chat';
@@ -24,9 +25,6 @@ interface ExtendedConversation extends Conversation {
 interface ExtendedChatMessage extends ChatMessage {
   content: string; // Map from backend 'content' field
   timestamp: string; // Map from backend timestamp
-}
-
-interface ExtendedChatMessage extends ChatMessage {
   read?: boolean;
 }
 
@@ -37,6 +35,27 @@ const getCurrentUser = () => {
     return JSON.parse(userStr);
   } catch {
     return null;
+  }
+};
+
+// Helpers to persist storeName per conversation locally to survive reloads
+const STORE_NAME_MAP_KEY = 'chat_store_name_map_v1';
+const readStoreNameMap = (): Record<number, string> => {
+  try {
+    const raw = localStorage.getItem(STORE_NAME_MAP_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<number, string>;
+  } catch {
+    return {};
+  }
+};
+const saveStoreNameToMap = (conversationId: number, name: string) => {
+  try {
+    const map = readStoreNameMap();
+    map[conversationId] = name;
+    localStorage.setItem(STORE_NAME_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
   }
 };
 
@@ -52,14 +71,30 @@ const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<ExtendedChatMessage[]>([]);
   const [filterType, setFilterType] = useState<'all' | 'unread' | 'pinned'>('all');
   const [chatService] = useState(() => new ChatService(api));
+  const currentSubscribedConvRef = useRef<number | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const [searchParams] = useSearchParams();
+  
+  // Helper to add a message only if it's not already present to avoid duplicates
+  const addMessageIfNotExists = (msg: ExtendedChatMessage) => {
+    setMessages(prev => {
+      // If id exists, dedupe by id
+      if (msg.id != null) {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      }
+      // If no id, try dedupe by timestamp + sender + content
+      if (prev.some(m => m.timestamp === msg.timestamp && m.senderId === msg.senderId && m.content === msg.content)) return prev;
+      return [...prev, msg];
+    });
+  };
 
   const user = getCurrentUser();
   const customerId = user && user.userId ? Number(user.userId) : null;
 
   useEffect(() => {
     if (!customerId) return;
-    const initializeChat = async () => {
+  const initializeChat = async () => {
       try {
         // Connect WebSocket
         chatService.connect(
@@ -82,7 +117,7 @@ const ChatInterface: React.FC = () => {
             content: message.messageText || '',
             timestamp: message.createdAt || new Date().toISOString()
           };
-          setMessages(prev => [...prev, extendedMessage]);
+          addMessageIfNotExists(extendedMessage);
           
           // Update last message in conversation
           setConversations(prev => 
@@ -119,19 +154,30 @@ const ChatInterface: React.FC = () => {
             console.log('Store info for', conv.storeId, ':', storeInfo);
             conversationsWithStore.push({
               ...conv,
-              storeName: storeInfo.name,
+              storeName: storeInfo?.name || readStoreNameMap()[conv.id as number] || `Cửa hàng #${conv.storeId}`,
             });
           } catch (error) {
             console.warn(`Could not fetch store info for store ${conv.storeId}:`, error);
             conversationsWithStore.push({
               ...conv,
-              storeName: `Cửa hàng #${conv.storeId}`,
+              storeName: readStoreNameMap()[conv.id as number] || `Cửa hàng #${conv.storeId}`,
             });
           }
         }
         
         console.log('Final conversations with store info:', conversationsWithStore);
-        setConversations(conversationsWithStore);
+        // Merge with any existing conversations in state and localStorage map to preserve storeName
+        const storedMap = readStoreNameMap();
+        setConversations(prev => {
+          const prevMap = new Map<number, ExtendedConversation>();
+          prev.forEach(p => { if (p.id != null) prevMap.set(p.id, p); });
+          return conversationsWithStore.map(conv => {
+            const existing = conv.id != null ? prevMap.get(conv.id) : undefined;
+            if (existing && existing.storeName) return { ...conv, storeName: existing.storeName };
+            if (conv.id != null && storedMap[conv.id]) return { ...conv, storeName: storedMap[conv.id] };
+            return conv;
+          });
+        });
         
         // Fetch unread notifications and show a summary
         try {
@@ -155,6 +201,11 @@ const ChatInterface: React.FC = () => {
 
     // Cleanup on unmount
     return () => {
+      // Unsubscribe current conversation if any
+      if (currentSubscribedConvRef.current) {
+        chatService.unsubscribeConversation(currentSubscribedConvRef.current);
+        currentSubscribedConvRef.current = null;
+      }
       chatService.disconnect();
       toast.error('Mất kết nối chat');
     };
@@ -170,8 +221,14 @@ const ChatInterface: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleConversationSelect = async (conversationId: number) => {
+  const handleConversationSelect = React.useCallback(async (conversationId: number) => {
     console.log('Selecting conversation:', conversationId);
+    // Unsubscribe previous conversation subscription if exists
+    if (currentSubscribedConvRef.current && currentSubscribedConvRef.current !== conversationId) {
+      chatService.unsubscribeConversation(currentSubscribedConvRef.current);
+      currentSubscribedConvRef.current = null;
+    }
+
     setSelectedConversation(conversationId);
     
     try {
@@ -193,9 +250,82 @@ const ChatInterface: React.FC = () => {
       console.error('Error loading messages:', error);
       setMessages([]);
     }
-    
+
+  // Subscribe to conversation topic for realtime messages
+    try {
+      chatService.subscribeConversation(conversationId, (message: ChatMessage) => {
+        // Only handle messages for the currently selected conversation
+        if (message.conversationId !== conversationId) return;
+        const extendedMessage: ExtendedChatMessage = {
+          ...message,
+          content: message.messageText || '',
+          timestamp: message.createdAt || new Date().toISOString(),
+        };
+  addMessageIfNotExists(extendedMessage);
+
+        // Update last message in conversation list
+        setConversations(prev =>
+          prev.map(conv =>
+            conv.id === message.conversationId
+              ? { ...conv, lastMessage: { content: extendedMessage.content, timestamp: extendedMessage.timestamp } }
+              : conv
+          )
+        );
+      });
+      currentSubscribedConvRef.current = conversationId;
+    } catch (e) {
+      console.warn('Could not subscribe to conversation topic', e);
+    }
+
+    // Ensure selected conversation has a storeName (fetch if missing)
+    try {
+      const existingConv = conversations.find(c => c.id === conversationId);
+      if (existingConv && !existingConv.storeName) {
+        try {
+          const storeInfo = await chatService.getStoreInfo(existingConv.storeId);
+          setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, storeName: storeInfo?.name || `Cửa hàng #${existingConv.storeId}` } : c));
+        } catch {
+          setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, storeName: `Cửa hàng #${existingConv.storeId}` } : c));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (window.innerWidth < 1024) setIsSidebarOpen(false);
-  };
+  }, [chatService, conversations]);
+
+  // If page opened with storeId in query params, try to get or create conversation and open it
+  useEffect(() => {
+    const openConversationFromQuery = async () => {
+      if (!customerId) return;
+      const storeIdParam = searchParams.get('storeId');
+      if (!storeIdParam) return;
+      const storeId = Number(storeIdParam);
+      if (Number.isNaN(storeId)) return;
+
+      try {
+        const conv = await chatService.getOrCreateConversation(customerId, storeId);
+        // Ensure conversation appears in list
+        setConversations(prev => {
+          if (prev.some(c => c.id === conv.id)) return prev;
+          const storeName = searchParams.get('storeName') || `Cửa hàng #${storeId}`;
+          // persist locally
+          saveStoreNameToMap(conv.id, storeName);
+          return [...prev, { ...conv, storeName }];
+        });
+
+        // Select and load messages
+        handleConversationSelect(conv.id);
+      } catch (error) {
+        console.error('Error creating or getting conversation from query param:', error);
+        toast.error('Không thể mở cuộc trò chuyện với cửa hàng');
+      }
+    };
+
+    openConversationFromQuery();
+    // Only run when search params, customerId, or chatService change
+  }, [searchParams, customerId, chatService, handleConversationSelect]);
 
   const handleSendMessage = async () => {
     if (!selectedConversation || (!newMessage.trim() && selectedImages.length === 0 && selectedVideos.length === 0)) {
@@ -234,7 +364,7 @@ const ChatInterface: React.FC = () => {
         content: saved.messageText || '',
         timestamp: saved.createdAt || new Date().toISOString(),
       };
-      setMessages(prev => [...prev, extendedMessage]);
+  addMessageIfNotExists(extendedMessage);
 
       // Update last message for conversation
       setConversations(prev =>

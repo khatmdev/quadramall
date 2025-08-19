@@ -9,6 +9,8 @@ export class ChatService {
   private onMessageReceived: ((message: ChatMessage) => void) | null = null;
   private onNotificationReceived: ((notification: Notification) => void) | null = null;
   private readonly api: AxiosInstance;
+  // Manage conversation topic subscriptions
+  private conversationSubscriptions: Record<number, ReturnType<Client['subscribe']> | null> = {};
 
   constructor(api: AxiosInstance) {
     this.api = api;
@@ -71,6 +73,19 @@ export class ChatService {
   // Ngắt kết nối WebSocket
   disconnect(): void {
     if (this.stompClient) {
+      // Unsubscribe all conversation topic subscriptions
+      Object.keys(this.conversationSubscriptions).forEach((key) => {
+        const sub = this.conversationSubscriptions[Number(key)];
+        if (sub && typeof sub.unsubscribe === 'function') {
+          try {
+            sub.unsubscribe();
+          } catch {
+            // ignore unsubscribe errors
+          }
+        }
+      });
+      this.conversationSubscriptions = {};
+
       this.stompClient.deactivate();
       this.connected = false;
       console.log('WebSocket disconnected');
@@ -103,6 +118,36 @@ export class ChatService {
   // Đặt callback nhận thông báo
   setOnNotificationReceived(callback: (notification: Notification) => void): void {
     this.onNotificationReceived = callback;
+  }
+
+  // Subscribe vào /topic/conversations/{conversationId} để nhận tin nhắn realtime cho cuộc trò chuyện
+  subscribeConversation(conversationId: number, callback: (message: ChatMessage) => void): void {
+    if (!this.stompClient || !this.connected) return;
+    if (this.conversationSubscriptions[conversationId]) return; // already subscribed
+
+    const sub = this.stompClient.subscribe(`/topic/conversations/${conversationId}`, (msg) => {
+      try {
+        const payload = JSON.parse(msg.body) as ChatMessage;
+        callback(payload);
+      } catch (e) {
+        console.error('Failed to parse conversation message', e);
+      }
+    });
+
+    this.conversationSubscriptions[conversationId] = sub;
+  }
+
+  // Unsubscribe khỏi topic cuộc trò chuyện
+  unsubscribeConversation(conversationId: number): void {
+    const sub = this.conversationSubscriptions[conversationId];
+    if (sub && typeof sub.unsubscribe === 'function') {
+      try {
+        sub.unsubscribe();
+      } catch {
+        // ignore
+      }
+    }
+    delete this.conversationSubscriptions[conversationId];
   }
 
   // Lấy danh sách tin nhắn qua REST API
