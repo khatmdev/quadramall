@@ -11,7 +11,7 @@ const hotKeywords = [
   'USB Lexar 64gb',
   'Quạt Tích Điện',
   'Bàn Phím Cơ',
-  'Lọt Khe Nữ',
+  'Lọt Khe Nữ',
   'iPhone 15 Pro Max',
   'Giày Onitsuka',
   'Dorothy'
@@ -22,12 +22,19 @@ const Header: React.FC = () => {
   const { token } = useSelector((state: RootState) => state.auth);
 
   const handleSellerRedirect = () => {
+    // Tạo unique key để đảm bảo seller site nhận được signal
+    const refreshKey = `seller_refresh_${Date.now()}`;
+
+    // Set signals cho seller site
+    localStorage.setItem('sellerRefreshNeeded', 'true');
+    localStorage.setItem('sellerRefreshKey', refreshKey);
+    localStorage.setItem('publicSiteToken', token || '');
+
     if (token) {
-      const sellerUrl = `http://localhost:3000/seller?token=${encodeURIComponent(token)}`;
+      const sellerUrl = `http://localhost:3000/seller?token=${encodeURIComponent(token)}&refresh=${refreshKey}`;
       window.open(sellerUrl, '_blank');
     } else {
-      // Nếu chưa đăng nhập, chuyển hướng đến trang đăng nhập của seller
-      window.location.href = 'http://localhost:3000/login';
+      window.open(`http://localhost:3000/login?refresh=${refreshKey}`, '_blank');
     }
   };
 
@@ -36,7 +43,6 @@ const Header: React.FC = () => {
       {/* Top Bar */}
       <div className="bg-transparent h-8 flex items-center justify-center px-4 text-xs text-white">
         <div className="flex space-x-4 relative">
-          {/* Sử dụng onClick thay vì Link để chuyển hướng sang seller frontend */}
           <button onClick={handleSellerRedirect} className="hover:underline">
             Kênh Người Bán
           </button>

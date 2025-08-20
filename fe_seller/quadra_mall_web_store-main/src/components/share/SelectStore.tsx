@@ -24,14 +24,17 @@ const SelectStore: React.FC = () => {
     const [selectedStoreId, setSelectedStoreId] = useState<string | null>(localStorage.getItem('selectedStoreId') || null);
     const [stores, setStores] = useState<StoreInfoDto[]>([]);
     const [loading, setLoading] = useState(true);
+    const [canRegisterNew, setCanRegisterNew] = useState(false);
 
-    // Load store data
+    // Load store data và check registration status
     useEffect(() => {
-        const loadStores = async () => {
+        const loadStoresAndCheckRegistration = async () => {
             if (!isAuthenticated) return;
 
             try {
                 setLoading(true);
+
+                // Load stores
                 const storeData = await sellerApi.getCurrentUserStores();
                 setStores(storeData);
 
@@ -39,14 +42,27 @@ const SelectStore: React.FC = () => {
                 if (storeData.length > 0 && !selectedStoreId) {
                     setSelectedStoreId(storeData[0].id.toString());
                 }
+
+                // Check registration status để xem có thể đăng ký mới không
+                try {
+                    const currentRegistration = await sellerApi.getCurrentUserRegistration();
+                    // Nếu có registration PENDING hoặc REJECTED thì không cho đăng ký mới
+                    setCanRegisterNew(!currentRegistration);
+                } catch (error) {
+                    // Nếu không có registration nào thì cho phép đăng ký mới
+                    setCanRegisterNew(true);
+                }
+
             } catch (error) {
                 console.error('Error loading stores:', error);
+                // Nếu lỗi, vẫn cho phép thử đăng ký
+                setCanRegisterNew(true);
             } finally {
                 setLoading(false);
             }
         };
 
-        loadStores();
+        loadStoresAndCheckRegistration();
     }, [isAuthenticated, selectedStoreId]);
 
     const handleSelectStore = (storeId: number) => {
@@ -76,8 +92,12 @@ const SelectStore: React.FC = () => {
         }
     };
 
-    const handleRegisterNewStore = () => {
-        navigate('/registration', { replace: false });
+    const handleRegisterNewStore = async () => {
+        // Truyền state để ShopRegistration biết là từ SelectStore
+        navigate('/registration', {
+            state: { fromSelectStore: true },
+            replace: false
+        });
     };
 
     const getStatusIcon = (status: StoreStatus) => {
@@ -138,13 +158,13 @@ const SelectStore: React.FC = () => {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-100">
                 <div className="bg-white p-6 rounded-lg shadow-md text-center">
-                    <h2 className="text-2xl font-bold mb-4 text-gray-800">No Stores Available</h2>
-                    <p className="text-gray-600 mb-6">You don't have any approved stores yet.</p>
+                    <h2 className="text-2xl font-bold mb-4 text-gray-800">Chưa có cửa hàng</h2>
+                    <p className="text-gray-600 mb-6">Bạn chưa có cửa hàng nào được duyệt.</p>
                     <button
                         onClick={handleRegisterNewStore}
                         className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
                     >
-                        Register Your First Store
+                        Đăng ký cửa hàng đầu tiên
                     </button>
                 </div>
             </div>
@@ -155,8 +175,8 @@ const SelectStore: React.FC = () => {
         <div className="min-h-screen bg-gray-100 py-8 px-4">
             <div className="max-w-4xl mx-auto">
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold text-gray-800 mb-2">Select Your Store</h1>
-                    <p className="text-gray-600">Choose a store to manage or register a new one</p>
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2">Chọn cửa hàng</h1>
+                    <p className="text-gray-600">Chọn cửa hàng để quản lý hoặc đăng ký cửa hàng mới</p>
                 </div>
 
                 {/* Store Grid */}
@@ -258,15 +278,34 @@ const SelectStore: React.FC = () => {
                     {/* Add New Store Card */}
                     <div
                         onClick={handleRegisterNewStore}
-                        className="bg-white p-6 rounded-lg shadow-md cursor-pointer transition-all hover:shadow-lg border-2 border-dashed border-gray-300 hover:border-green-400 flex flex-col items-center justify-center text-gray-500 hover:text-green-600"
+                        className={`bg-white p-6 rounded-lg shadow-md cursor-pointer transition-all hover:shadow-lg border-2 border-dashed flex flex-col items-center justify-center ${
+                            canRegisterNew
+                                ? 'border-gray-300 hover:border-green-400 text-gray-500 hover:text-green-600'
+                                : 'border-red-300 text-red-400 hover:border-red-400 hover:text-red-500'
+                        }`}
                     >
-                        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                            </svg>
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+                            canRegisterNew ? 'bg-gray-100' : 'bg-red-50'
+                        }`}>
+                            {canRegisterNew ? (
+                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                                </svg>
+                            ) : (
+                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                            )}
                         </div>
-                        <h3 className="text-lg font-semibold mb-2">Register New Store</h3>
-                        <p className="text-sm text-center">Add another store to your account</p>
+                        <h3 className="text-lg font-semibold mb-2">
+                            {canRegisterNew ? 'Đăng ký cửa hàng mới' : 'Kiểm tra trạng thái đăng ký'}
+                        </h3>
+                        <p className="text-sm text-center">
+                            {canRegisterNew
+                                ? 'Thêm cửa hàng mới vào tài khoản'
+                                : 'Bạn có đăng ký đang chờ xử lý'
+                            }
+                        </p>
                     </div>
                 </div>
 
@@ -277,7 +316,7 @@ const SelectStore: React.FC = () => {
                         disabled={!selectedStoreId}
                         className="px-8 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
                     >
-                        Go to Selected Store
+                        Vào cửa hàng đã chọn
                     </button>
                 </div>
             </div>
