@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LockClosedIcon, EnvelopeIcon, ComputerDesktopIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/solid';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { loginUser, verifyToken } from '@/store/Auth/authSlice';
+import { loginUser, verifyToken, logout } from '@/store/Auth/authSlice';
 import type { AppDispatch, RootState } from '@/store';
 import { useDispatch, useSelector } from 'react-redux';
 import { LoginRequest } from '@/types/Auth/base/Request/loginRequest';
@@ -34,17 +34,74 @@ const Login: React.FC = () => {
         }
     };
 
-    // Xử lý token từ query parameter
+    // Xử lý auth sync từ public site
+    useEffect(() => {
+        const handleAuthSync = async () => {
+            // Kiểm tra signals từ public site (backup nếu App.tsx không catch được)
+            const needRefresh = localStorage.getItem('sellerRefreshNeeded');
+            const publicToken = localStorage.getItem('publicSiteToken');
+
+            // Kiểm tra URL params
+            const urlParams = new URLSearchParams(location.search);
+            const urlToken = urlParams.get('token');
+            const urlRefreshKey = urlParams.get('refresh');
+
+            if (needRefresh === 'true' || urlRefreshKey) {
+                console.log('🔄 Login page: Processing auth sync from public site...');
+
+                // Clear signals
+                localStorage.removeItem('sellerRefreshNeeded');
+                localStorage.removeItem('sellerRefreshKey');
+                localStorage.removeItem('publicSiteToken');
+
+                // Clear old auth data
+                dispatch(logout());
+
+                const tokenToVerify = urlToken || publicToken;
+
+                if (tokenToVerify && tokenToVerify !== 'null' && tokenToVerify !== '') {
+                    setIsLoading(true);
+                    setMessage('Đang đồng bộ thông tin đăng nhập từ trang chính...');
+
+                    try {
+                        await dispatch(verifyToken(tokenToVerify)).unwrap();
+                        console.log('✅ Login page: Token verified successfully');
+
+                        // Clean URL
+                        if (urlRefreshKey || urlToken) {
+                            navigate('/login', { replace: true });
+                        }
+
+                        setMessage('Đăng nhập thành công!');
+
+                    } catch (error: any) {
+                        console.error('❌ Login page: Token verification failed:', error);
+                        setError('Không thể đồng bộ thông tin đăng nhập. Vui lòng đăng nhập thủ công.');
+                        setMessage('');
+                    } finally {
+                        setIsLoading(false);
+                    }
+                } else {
+                    setMessage('Vui lòng đăng nhập để tiếp tục.');
+                }
+            }
+        };
+
+        handleAuthSync();
+    }, [dispatch, location.search, navigate]);
+
+    // Xử lý token từ query parameter (OAuth callback)
     useEffect(() => {
         const queryParams = new URLSearchParams(location.search);
         const token = queryParams.get('token');
+        const refresh = queryParams.get('refresh');
 
-        if (token && !isAuthenticated) {
+        // Chỉ xử lý OAuth token nếu không phải từ public site redirect
+        if (token && !refresh && !isAuthenticated) {
             setIsLoading(true);
             dispatch(verifyToken(token))
                 .unwrap()
                 .then(() => {
-                    // Sau khi xác thực thành công, kiểm tra store
                     checkUserStore();
                 })
                 .catch((err: string) => {
@@ -82,6 +139,7 @@ const Login: React.FC = () => {
             const payload: LoginRequest = { email, password };
             await dispatch(loginUser(payload)).unwrap();
             setError('');
+            setMessage('');
         } catch (err: unknown) {
             let errorMessage = 'Đăng nhập thất bại. Vui lòng kiểm tra email hoặc mật khẩu.';
             if (err instanceof Error) {
@@ -114,7 +172,10 @@ const Login: React.FC = () => {
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-100 to-white px-4">
             <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col justify-between h-full">
                 {isLoading ? (
-                    <div className="text-center">Đang xác thực...</div>
+                    <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
+                        <p>{message || 'Đang xác thực...'}</p>
+                    </div>
                 ) : (
                     <>
                         <div>

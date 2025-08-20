@@ -17,7 +17,9 @@ import {
     Upload,
     ArrowLeft,
     CheckCircle,
-    Store
+    Store,
+    Trash2,
+    AlertTriangle
 } from 'lucide-react';
 import { toast, ToastContainer } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +33,71 @@ interface RegistrationEditPageProps {
     onBackToPending: () => void;
 }
 
+// Confirmation Modal Component
+interface ConfirmationModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    type: 'danger' | 'warning';
+}
+
+const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
+                                                                 isOpen,
+                                                                 onClose,
+                                                                 onConfirm,
+                                                                 title,
+                                                                 message,
+                                                                 confirmText,
+                                                                 cancelText,
+                                                                 type
+                                                             }) => {
+    if (!isOpen) return null;
+
+    const iconColor = type === 'danger' ? 'text-red-600' : 'text-yellow-600';
+    const bgColor = type === 'danger' ? 'bg-red-50' : 'bg-yellow-50';
+    const borderColor = type === 'danger' ? 'border-red-200' : 'border-yellow-200';
+    const buttonColor = type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700';
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <div className={`${bgColor} ${borderColor} border rounded-lg p-4 mb-4`}>
+                    <div className="flex items-start gap-3">
+                        {type === 'danger' ? (
+                            <AlertTriangle className={`w-6 h-6 ${iconColor} flex-shrink-0 mt-0.5`} />
+                        ) : (
+                            <AlertCircle className={`w-6 h-6 ${iconColor} flex-shrink-0 mt-0.5`} />
+                        )}
+                        <div>
+                            <h3 className="font-semibold text-gray-800 mb-2">{title}</h3>
+                            <p className="text-gray-700 text-sm">{message}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 justify-end">
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                    >
+                        {cancelText}
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className={`px-4 py-2 ${buttonColor} text-white rounded-lg transition-colors`}
+                    >
+                        {confirmText}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
                                                                        registrationData,
                                                                        onBackToPending
@@ -42,6 +109,8 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
     const hasExistingStores = storeIds && storeIds.length > 0;
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
+    const [showCancelModal, setShowCancelModal] = useState(false);
     const [editingField, setEditingField] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         storeName: registrationData.storeName,
@@ -162,6 +231,40 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
         setErrors(prev => ({ ...prev, [field]: '' }));
     };
 
+    const handleCancelRegistration = async () => {
+        setIsCancelling(true);
+        const toastId = toast.loading('Đang hủy đăng ký...');
+
+        try {
+            await sellerApi.cancelRegistration(registrationData.id);
+
+            toast.update(toastId, {
+                render: 'Đăng ký đã được hủy thành công!',
+                type: 'success',
+                isLoading: false,
+                autoClose: 3000,
+            });
+
+            // Đợi một chút để user thấy thông báo thành công
+            setTimeout(() => {
+                onBackToPending();
+            }, 1500);
+
+        } catch (error: any) {
+            console.error('Hủy đăng ký thất bại:', error);
+            const errorMessage = error.response?.data?.message || error.message || 'Có lỗi xảy ra khi hủy đăng ký';
+            toast.update(toastId, {
+                render: errorMessage,
+                type: 'error',
+                isLoading: false,
+                autoClose: 5000,
+            });
+        } finally {
+            setIsCancelling(false);
+            setShowCancelModal(false);
+        }
+    };
+
     const renderEditableField = (
         label: string,
         field: string,
@@ -246,32 +349,49 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
             <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">{label}:</label>
 
-                {/* Current file display */}
-                {currentUrl && !file && (
-                    <div className="mb-3">
-                        <img
-                            src={currentUrl}
-                            alt={label}
-                            className="w-32 h-32 object-cover rounded-lg border"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">File hiện tại</p>
-                    </div>
-                )}
+                {/* Combined display and input */}
+                <div className="relative">
+                    {/* Current or new file display */}
+                    {(currentUrl || file) && (
+                        <div className="mb-3 relative group">
+                            <img
+                                src={file ? URL.createObjectURL(file) : currentUrl}
+                                alt={label}
+                                className="w-32 h-32 object-cover rounded-lg border cursor-pointer hover:opacity-75 transition-opacity"
+                                onClick={() => document.getElementById(field)?.click()}
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black bg-opacity-50 rounded-lg cursor-pointer w-32 h-32"
+                                 onClick={() => document.getElementById(field)?.click()}>
+                                <div className="text-white text-center">
+                                    <Upload className="w-6 h-6 mx-auto mb-1" />
+                                    <span className="text-xs">Thay đổi</span>
+                                </div>
+                            </div>
+                            {file && (
+                                <p className="text-xs text-green-600 mt-1 font-medium">File mới: {file.name}</p>
+                            )}
+                            {!file && currentUrl && (
+                                <p className="text-xs text-gray-500 mt-1">Click để thay đổi file</p>
+                            )}
+                        </div>
+                    )}
 
-                {/* New file preview */}
-                {file && (
-                    <div className="mb-3">
-                        <img
-                            src={URL.createObjectURL(file)}
-                            alt={label}
-                            className="w-32 h-32 object-cover rounded-lg border"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">File mới: {file.name}</p>
-                    </div>
-                )}
+                    {/* Upload area when no file */}
+                    {!currentUrl && !file && (
+                        <div
+                            className="border-2 border-dashed border-gray-300 rounded-lg w-32 h-32 flex flex-col items-center justify-center hover:border-green-500 transition-colors cursor-pointer"
+                            onClick={() => document.getElementById(field)?.click()}
+                        >
+                            <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                            <span className="text-xs text-gray-600 text-center">Click để chọn</span>
+                        </div>
+                    )}
 
-                {/* File input */}
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-500 transition-colors">
+                    {!currentUrl && !file && (
+                        <p className="text-xs text-gray-500 mt-1">PNG, JPG, JPEG, GIF, WEBP tối đa 5MB</p>
+                    )}
+
+                    {/* Hidden file input */}
                     <input
                         type="file"
                         accept="image/*"
@@ -279,16 +399,6 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
                         className="hidden"
                         id={field}
                     />
-                    <label
-                        htmlFor={field}
-                        className="cursor-pointer flex flex-col items-center gap-2"
-                    >
-                        <Upload className="w-8 h-8 text-gray-400" />
-                        <span className="text-sm text-gray-600">
-                            {file || currentUrl ? 'Thay đổi file' : 'Chọn file'}
-                        </span>
-                        <span className="text-xs text-gray-500">PNG, JPG tối đa 5MB</span>
-                    </label>
                 </div>
             </div>
         );
@@ -298,7 +408,7 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
         // Validate all fields
         const fieldsToValidate = [
             'storeName', 'pickupContactName', 'pickupContactPhone',
-            'specificAddress', 'ward', 'district', 'city', 'taxCode'
+            'specificAddress', 'taxCode'
         ];
 
         let hasErrors = false;
@@ -341,15 +451,8 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
                 businessLicenseUrl = await uploadImage(formData.businessLicenseFile);
             }
 
-            // Prepare address string
-            const fullAddress = [
-                formData.pickupContactName,
-                formData.pickupContactPhone,
-                formData.specificAddress,
-                formData.ward,
-                formData.district,
-                formData.city,
-            ].filter(Boolean).join(' , ');
+            // Prepare address string - sử dụng address gốc từ registration data
+            const fullAddress = registrationData.address;
 
             // Prepare update data
             const updateData: RegistrationUpdateRequest = {
@@ -400,6 +503,19 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
     return (
         <div className="min-h-screen bg-gray-50 py-8">
             <ToastContainer />
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={showCancelModal}
+                onClose={() => setShowCancelModal(false)}
+                onConfirm={handleCancelRegistration}
+                title="Xác nhận hủy đăng ký"
+                message="Bạn có chắc chắn muốn hủy đăng ký này không? Hành động này không thể hoàn tác và bạn sẽ cần đăng ký lại từ đầu nếu muốn trở thành người bán."
+                confirmText="Hủy đăng ký"
+                cancelText="Giữ lại"
+                type="danger"
+            />
+
             <div className="max-w-4xl mx-auto px-6">
                 {/* Header */}
                 <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
@@ -459,53 +575,82 @@ const RegistrationEditPage: React.FC<RegistrationEditPageProps> = ({
                         <h3 className="text-lg font-semibold text-gray-800 mb-4">Địa chỉ</h3>
 
                         {renderEditableField('Địa chỉ cụ thể', 'specificAddress', 'text', 'Số nhà, tên đường')}
-                        {renderEditableField('Phường/Xã', 'ward', 'text', 'Nhập phường/xã')}
-                        {renderEditableField('Quận/Huyện', 'district', 'text', 'Nhập quận/huyện')}
-                        {renderEditableField('Tỉnh/Thành phố', 'city', 'text', 'Nhập tỉnh/thành phố')}
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Địa chỉ đầy đủ:</label>
+                            <div className="p-3 bg-gray-100 rounded-lg border">
+                                <span className="text-gray-600">{registrationData.address}</span>
+                                <span className="text-xs text-gray-500 ml-2">(Từ dữ liệu đã đăng ký)</span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Documents */}
-                    <div className="bg-white rounded-lg shadow-sm p-6">
+                    <div className="bg-white rounded-lg shadow-sm p-6 lg:col-span-2">
                         <h3 className="text-lg font-semibold text-gray-800 mb-4">Tài liệu</h3>
 
-                        {renderFileField('Logo cửa hàng', 'logoFile', registrationData.logoUrl)}
-                        {renderFileField('CMND/CCCD mặt trước', 'idFrontFile', registrationData.idCardUrl?.[0])}
-                        {renderFileField('CMND/CCCD mặt sau', 'idBackFile', registrationData.idCardUrl?.[1])}
-                        {renderFileField('Giấy phép kinh doanh (nếu có)', 'businessLicenseFile', registrationData.businessLicenseUrl)}
+                        <div className="grid grid-cols-2 gap-6">
+                            {renderFileField('Logo cửa hàng', 'logoFile', registrationData.logoUrl)}
+                            {renderFileField('CMND/CCCD mặt trước', 'idFrontFile', registrationData.idCardUrl?.[0])}
+                            {renderFileField('CMND/CCCD mặt sau', 'idBackFile', registrationData.idCardUrl?.[1])}
+                            {renderFileField('Giấy phép kinh doanh (nếu có)', 'businessLicenseFile', registrationData.businessLicenseUrl)}
+                        </div>
                     </div>
                 </div>
 
-                {/* Submit button */}
+                {/* Action buttons */}
                 <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
                     <div className="flex justify-between items-center">
-                        {/* Nút chuyển đến SelectStore nếu user đã có stores */}
-                        {hasExistingStores && (
-                            <button
-                                onClick={handleGoToSelectStore}
-                                className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2"
-                            >
-                                <Store className="w-5 h-5" />
-                                Quản lý cửa hàng hiện có
-                            </button>
-                        )}
-
+                        {/* Left side - Cancel registration button */}
                         <button
-                            onClick={handleSubmit}
-                            disabled={isSubmitting || editingField !== null}
-                            className="px-8 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2 ml-auto"
+                            onClick={() => setShowCancelModal(true)}
+                            disabled={isCancelling || isSubmitting}
+                            className="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2"
                         >
-                            {isSubmitting ? (
+                            {isCancelling ? (
                                 <>
                                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    Đang cập nhật...
+                                    Đang hủy...
                                 </>
                             ) : (
                                 <>
-                                    <CheckCircle className="w-5 h-5" />
-                                    Gửi lại hồ sơ
+                                    <Trash2 className="w-5 h-5" />
+                                    Hủy đăng ký
                                 </>
                             )}
                         </button>
+
+                        {/* Right side - Other actions */}
+                        <div className="flex gap-3">
+                            {/* Nút chuyển đến SelectStore nếu user đã có stores */}
+                            {hasExistingStores && (
+                                <button
+                                    onClick={handleGoToSelectStore}
+                                    className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2"
+                                >
+                                    <Store className="w-5 h-5" />
+                                    Quản lý cửa hàng hiện có
+                                </button>
+                            )}
+
+                            <button
+                                onClick={handleSubmit}
+                                disabled={isSubmitting || editingField !== null || isCancelling}
+                                className="px-8 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2"
+                            >
+                                {isSubmitting ? (
+                                    <>
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        Đang cập nhật...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle className="w-5 h-5" />
+                                        Gửi lại hồ sơ
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     {editingField && (

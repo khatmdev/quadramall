@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import type { RootState } from '@/store';
 import { createApi } from '@/services/axios';
 import { sellerRegistrationApi } from '@/services/sellerRegistrationService';
@@ -30,6 +30,7 @@ const sellerApi = sellerRegistrationApi(api);
 const ShopRegistration: React.FC = () => {
     const { user, storeIds } = useSelector((state: RootState) => state.auth);
     const navigate = useNavigate();
+    const location = useLocation();
     const [registrationData, setRegistrationData] = useState<RegistrationDetails | null>(null);
     const [showWelcome, setShowWelcome] = useState(true);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -66,6 +67,10 @@ const ShopRegistration: React.FC = () => {
                 return;
             }
 
+            // Kiểm tra nếu đến từ SelectStore (có state từ navigate)
+            const fromSelectStore = location.state?.fromSelectStore;
+            console.log('From SelectStore:', fromSelectStore);
+
             try {
                 console.log('Checking registration status for user:', user.email);
                 const currentRegistration = await sellerApi.getCurrentUserRegistration();
@@ -92,11 +97,21 @@ const ShopRegistration: React.FC = () => {
 
                         case RegistrationStatus.APPROVED:
                             console.log('Status: APPROVED - user can register new store');
-                            // User đã có cửa hàng được duyệt, có thể đăng ký cửa hàng mới
-                            setShowWelcome(false);
-                            setShowEditPage(false);
-                            setShowSuccess(false);
-                            setRegistrationData(null); // Reset để cho phép đăng ký mới
+                            // Nếu từ SelectStore thì skip welcome, cho phép đăng ký mới luôn
+                            if (fromSelectStore) {
+                                console.log('From SelectStore - skipping welcome, allowing new registration');
+                                setShowWelcome(false);
+                                setShowEditPage(false);
+                                setShowSuccess(false);
+                                setRegistrationData(null);
+                            } else {
+                                // Nếu truy cập trực tiếp hoặc từ public site, hiển thị welcome
+                                console.log('Direct access or from public - showing welcome screen');
+                                setShowWelcome(true);
+                                setShowEditPage(false);
+                                setShowSuccess(false);
+                                setRegistrationData(null);
+                            }
                             break;
 
                         default:
@@ -108,6 +123,17 @@ const ShopRegistration: React.FC = () => {
                     }
                 } else {
                     console.log('No pending/rejected registration, check if user should go to SelectStore or register new');
+
+                    // Nếu từ SelectStore thì skip welcome, cho phép đăng ký mới luôn
+                    if (fromSelectStore) {
+                        console.log('From SelectStore - skipping welcome, allowing new registration');
+                        setShowWelcome(false);
+                        setShowEditPage(false);
+                        setShowSuccess(false);
+                        setRegistrationData(null);
+                        return;
+                    }
+
                     // Không có đăng ký PENDING/REJECTED
                     // Kiểm tra xem user có cửa hàng được duyệt không
                     if (storeIds && storeIds.length > 0) {
@@ -116,15 +142,26 @@ const ShopRegistration: React.FC = () => {
                         return;
                     }
 
-                    // Nếu không có cửa hàng nào, hiển thị form đăng ký mới
-                    console.log('No approved stores, show registration form');
-                    setShowWelcome(false);
+                    // Nếu không có cửa hàng nào, hiển thị welcome screen cho user mới
+                    console.log('No approved stores, show welcome screen for new user');
+                    setShowWelcome(true);
                     setShowEditPage(false);
                     setShowSuccess(false);
                     setRegistrationData(null);
                 }
             } catch (error: any) {
                 console.log('Error checking registration:', error);
+
+                // Nếu từ SelectStore thì skip welcome, cho phép đăng ký mới luôn
+                if (fromSelectStore) {
+                    console.log('From SelectStore - skipping welcome, allowing new registration despite error');
+                    setShowWelcome(false);
+                    setShowEditPage(false);
+                    setShowSuccess(false);
+                    setRegistrationData(null);
+                    return;
+                }
+
                 // Khi có lỗi - kiểm tra xem có cửa hàng được duyệt không
                 if (storeIds && storeIds.length > 0) {
                     console.log('Error but user has approved stores, redirect to SelectStore');
@@ -132,9 +169,9 @@ const ShopRegistration: React.FC = () => {
                     return;
                 }
 
-                // Nếu không có cửa hàng, hiển thị form đăng ký
-                console.log('Error and no approved stores, show registration form');
-                setShowWelcome(false);
+                // Nếu không có cửa hàng, hiển thị welcome screen
+                console.log('Error and no approved stores, show welcome screen');
+                setShowWelcome(true);
                 setShowEditPage(false);
                 setShowSuccess(false);
                 setRegistrationData(null);
@@ -142,7 +179,7 @@ const ShopRegistration: React.FC = () => {
         };
 
         checkRegistrationStatus();
-    }, [user, navigate, storeIds]);
+    }, [user, navigate, storeIds, location.state]);
 
     // Cập nhật formData khi dữ liệu người dùng thay đổi
     useEffect(() => {
