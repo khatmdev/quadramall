@@ -14,8 +14,12 @@ const StoreHeader: React.FC<StoreHeaderProps> = ({ storeInfo, onToggleFavorite }
   const navigate = useNavigate();
 
   const handleChat = () => {
-    // Open ChatInterface route and pass storeId and storeName via query string
-    const params = new URLSearchParams({ storeId: String(storeInfo.storeId), storeName: storeInfo.storeName });
+    // Open ChatInterface route and pass storeId, storeName and logoUrl via query string
+    const params = new URLSearchParams({
+      storeId: String(storeInfo.storeId),
+      storeName: storeInfo.storeName,
+      logoUrl: storeInfo.logoUrl || ''
+    });
     navigate(`/ChatInterface?${params.toString()}`);
   };
   // Hàm format số thành dạng ngắn gọn (1000 → "1k+")

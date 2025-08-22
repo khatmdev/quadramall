@@ -1,3 +1,37 @@
+export const uploadVideo = async (file: File | Blob): Promise<ApiResponse<string>> => {
+  const formData = new FormData();
+  formData.append('file', file, 'video.mp4');
+  try {
+    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/video', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return {
+      status: 'success',
+      message: 'Upload thành công',
+      timestamp: new Date().toISOString(),
+      data: url,
+    };
+  } catch (error) {
+    let message = 'Upload thất bại';
+    let errorCode: string | undefined = undefined;
+    let status: 'fail' | 'error' = 'error';
+    if (axios.isAxiosError(error) && error.response) {
+      status = error.response.status >= 500 ? 'error' : 'fail';
+      message = typeof error.response.data === 'string' ? error.response.data : message;
+      errorCode = error.response.status.toString();
+    }
+    const errorResponse: ApiResponse<string> = {
+      status,
+      message,
+      timestamp: new Date().toISOString(),
+      data: null as any,
+      errorCode,
+    };
+    throw errorResponse;
+  }
+};
 // src/services/uploadService.ts
 import type { ApiResponse } from '@/types/api';
 import axios from 'axios';
