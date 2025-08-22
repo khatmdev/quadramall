@@ -119,6 +119,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/customer/**").hasRole("BUYER")
                         .requestMatchers("/api/shipper/**").hasRole("SHIPPER")
                         .requestMatchers("/products/**").permitAll()
+                        .requestMatchers("/api/media/**").permitAll()
 
                         // ✅ Public endpoints
                         .requestMatchers(HttpMethod.GET, "/api/customer/delivery/tracking/**").permitAll()
