@@ -1,4 +1,4 @@
-import { axios } from './axios';
+import { api } from '@/main';
 import { Client, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 
@@ -248,31 +248,31 @@ export const setOnNotificationReceived = (callback: (notification: NotificationD
 
 
 export const getMessagesByConversation = (conversationId: number) =>
-  axios.get<ChatMessageDTO[]>(`${API_BASE_URL}/conversations/${conversationId}/messages`);
+  api.get<ChatMessageDTO[]>(`${API_BASE_URL}/conversations/${conversationId}/messages`);
 
 export const getUnreadNotifications = (userId?: number, storeId?: number) =>
-  axios.get<NotificationDTO[]>(`${API_BASE_URL}/notifications`, { params: { userId, storeId } });
+  api.get<NotificationDTO[]>(`${API_BASE_URL}/notifications`, { params: { userId, storeId } });
 
 export const getOrCreateConversation = (customerId: number, storeId: number) =>
-  axios.get<ConversationDTO>(`${API_BASE_URL}/conversations`, { params: { customerId, storeId } });
+  api.get<ConversationDTO>(`${API_BASE_URL}/conversations`, { params: { customerId, storeId } });
 
 export const getUserConversations = (customerId: number) =>
-  axios.get<ConversationDTO[]>(`${API_BASE_URL}/user-conversations/${customerId}`);
+  api.get<ConversationDTO[]>(`${API_BASE_URL}/user-conversations/${customerId}`);
 
 export const markNotificationAsRead = (notificationId: number) =>
-  axios.put(`${API_BASE_URL}/notifications/${notificationId}/read`);
+  api.put(`${API_BASE_URL}/notifications/${notificationId}/read`);
 
 export const sendMessageRest = (chatMessageDTO: ChatMessageDTO) =>
-  axios.post<ChatMessageDTO>(`${API_BASE_URL}/send-message`, chatMessageDTO);
+  api.post<ChatMessageDTO>(`${API_BASE_URL}/send-message`, chatMessageDTO);
 
 export const getStoreConversations = (storeId: number) =>
-  axios.get<ConversationDTO[]>(`${API_BASE_URL}/store-conversations/${storeId}`);
+  api.get<ConversationDTO[]>(`${API_BASE_URL}/store-conversations/${storeId}`);
 
 export const markAllNotificationsAsRead = (userId?: number, storeId?: number) =>
-  axios.put(`${API_BASE_URL}/notifications/mark-all-read`, null, { params: { userId, storeId } });
+  api.put(`${API_BASE_URL}/notifications/mark-all-read`, null, { params: { userId, storeId } });
 
 export const deleteConversation = (conversationId: number) =>
-  axios.delete(`${API_BASE_URL}/conversations/${conversationId}`);
+  api.delete(`${API_BASE_URL}/conversations/${conversationId}`);
 
 export const getUnreadNotificationCount = (userId?: number, storeId?: number) =>
-  axios.get<number>(`${API_BASE_URL}/notifications/unread-count`, { params: { userId, storeId } });
+  api.get<number>(`${API_BASE_URL}/notifications/unread-count`, { params: { userId, storeId } });
