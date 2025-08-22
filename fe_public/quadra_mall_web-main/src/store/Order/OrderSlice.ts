@@ -2,15 +2,25 @@ import { api } from '@/main';
 import { CheckoutData } from '@/types/Order/interface';
 import { OrderRequest } from '@/types/Order/orderRequest';
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { clear } from 'console';
+import { set } from 'lodash';
 
 // Định nghĩa kiểu cho selectedItems (chứa cartItemIds)
 interface SelectedItem {
   id: number;
 }
+interface BuynowRequest {
+  productVariantId: number;
+  quantity: number;
+  addonIds?: number[]; // Optional, nếu có addons
+}
+
+
 
 // Trạng thái Redux (thêm redirectUrl để lưu tạm nếu cần)
 interface OrderState {
   selectedItems: SelectedItem[];
+  BuynowRequest : BuynowRequest | null; // Thêm BuynowRequest để lưu thông tin mua ngay
   checkoutData: CheckoutData | null;
   loading: boolean;
   error: string | null;
@@ -20,6 +30,7 @@ interface OrderState {
 // Trạng thái ban đầu
 const initialState: OrderState = {
   selectedItems: [],
+  BuynowRequest : null,
   checkoutData: null,
   loading: false,
   error: null,
@@ -31,6 +42,7 @@ const initialState: OrderState = {
 export const createOrder = createAsyncThunk('order/createOrder', async (orderRequest: OrderRequest, { rejectWithValue }) => {
   try {
     console.log('Dispatching createOrder with request:', orderRequest); // Log debug
+    console.log('API URL:', api.getUri.toString(), '/payment/create-orders'); // Log API URL
     const response = await api.post('/payment/create-orders', orderRequest);
     if (response.data.status !== 'success') {
       // Giả sử server trả về mã lỗi trong response.data.errorCode hoặc thông báo cụ thể
@@ -59,6 +71,9 @@ const orderSlice = createSlice({
     setSelectedItems(state, action: PayloadAction<SelectedItem[]>) {
       state.selectedItems = action.payload;
     },
+    setBuynowRequest(state, action: PayloadAction<BuynowRequest>) {
+      state.BuynowRequest = action.payload;
+    },
     setCheckoutData(state, action: PayloadAction<CheckoutData>) {
       state.checkoutData = action.payload;
     },
@@ -67,6 +82,14 @@ const orderSlice = createSlice({
       state.error = null;
       state.redirectUrl = null; // Clear redirectUrl
     },
+    clearSelectedItems(state) {
+      state.selectedItems = [];
+      state.error = null;
+    },
+    clearBuynowRequest(state) {
+      state.BuynowRequest = null;
+       state.error = null;
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -92,7 +115,7 @@ const orderSlice = createSlice({
 });
 
 // Xuất các action
-export const { setSelectedItems, setCheckoutData, clearCheckoutData } = orderSlice.actions;
+export const { setSelectedItems,setBuynowRequest ,setCheckoutData, clearCheckoutData,clearBuynowRequest, clearSelectedItems } = orderSlice.actions;
 
 // Xuất reducer
 export default orderSlice.reducer;

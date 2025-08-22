@@ -1,4 +1,4 @@
-import apiClient from '@/api/config/apiClient';
+import { api } from '@/main';
 import { Address } from '@/types/Order/interface';
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
@@ -17,7 +17,7 @@ const mapAddress = (addr: any): Address => ({
 
 // Thunk: lấy danh sách địa chỉ
 export const fetchAddresses = createAsyncThunk('address/fetchAddresses', async () => {
-  const response = await apiClient.get('/users/addresses');
+  const response = await api.get('/users/addresses');
   const raw = response.data.data;
   const mapped = raw.map(mapAddress);
   return mapped;
@@ -25,13 +25,13 @@ export const fetchAddresses = createAsyncThunk('address/fetchAddresses', async (
 
 // Thunk: lấy địa chỉ mặc định
 export const fetchAddressesDefault = createAsyncThunk('address/fetchAddressesDefault', async () => {
-  const response = await apiClient.get('/users/addresses/default');
+  const response = await api.get('/users/addresses/default');
   return mapAddress(response.data.data);
 });
 
 // Thunk: thêm địa chỉ mới
 export const addAddress = createAsyncThunk('users/addresses/addAddress', async (address: any) => {
-  const response = await apiClient.post('/users/addresses', address);
+  const response = await api.post('/users/addresses', address);
   return mapAddress(response.data.data);
 });
 
@@ -39,20 +39,20 @@ export const addAddress = createAsyncThunk('users/addresses/addAddress', async (
 export const updateAddress = createAsyncThunk(
   'address/updateAddress',
   async ({ id, address }: { id: number; address: any }) => {
-    const response = await apiClient.put(`/users/addresses/${id}`, address);
+    const response = await api.put(`/users/addresses/${id}`, address);
     return mapAddress(response.data.data);
   }
 );
 
 // Thunk: xóa địa chỉ
 export const deleteAddress = createAsyncThunk('address/deleteAddress', async (id: number) => {
-  await apiClient.delete(`/users/addresses/${id}`);
+  await api.delete(`/users/addresses/${id}`);
   return id;
 });
 
 // Thunk: đặt địa chỉ mặc định
 export const setDefaultAddress = createAsyncThunk('address/setDefaultAddress', async (id: number) => {
-  const response = await apiClient.put(`/users/addresses/default/${id}`);
+  const response = await api.put(`/users/addresses/default/${id}`);
   return mapAddress(response.data.data);
 });
 

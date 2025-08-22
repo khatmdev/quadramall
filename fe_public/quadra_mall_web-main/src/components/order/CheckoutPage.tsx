@@ -19,7 +19,7 @@ import { setAmount } from '@/store/Wallet/walletSlice';
 
 const CheckoutPage: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const { selectedItems, checkoutData, loading: orderLoading, error: orderError } = useSelector((state: RootState) => state.order);
+  const { selectedItems, BuynowRequest ,checkoutData, loading: orderLoading, error: orderError } = useSelector((state: RootState) => state.order);
   const { defaultAddress } = useSelector((state: RootState) => state.address);
   const { balance } = useSelector((state: RootState) => state.wallet);
   const [loading, setLoading] = useState<boolean>(true);
@@ -45,35 +45,75 @@ const CheckoutPage: React.FC = () => {
   const isFetchingRef = useRef(false);
 
   useEffect(() => {
-    if (selectedItems.length > 0 && !isFetchingRef.current) {
-      isFetchingRef.current = true;
-      const fetchCheckoutData = async () => {
-        try {
-          setLoading(true);
-          setError(null);
-          const selectedItemIds = selectedItems.map((item: any) => item.id);
-          console.log('Fetching checkout with IDs:', selectedItemIds);
-          const response = await api.post('/order', selectedItemIds);
-          if (response.data.status !== 'success') {
-            throw new Error(response.data.message || 'Không thể tải dữ liệu đơn hàng');
-          }
-          dispatch(setCheckoutData(response.data.data));
-        } catch (err) {
-          let errorMessage = 'Đã xảy ra lỗi. Vui lòng thử lại.';
-          if (err && typeof err === 'object' && 'response' in err && (err as any).response?.data?.message) {
-            errorMessage = (err as any).response.data.message;
-          } else if (err instanceof Error) {
-            errorMessage = err.message;
-          }
-          setError(errorMessage);
-        } finally {
-          setLoading(false);
-          isFetchingRef.current = false;
+  console.log('Selected items changed:', selectedItems);
+  console.log('Buy now request:', BuynowRequest);
+  
+  // Only proceed if we're not already fetching
+  if (isFetchingRef.current) return;
+  
+  // Case 1: Regular checkout with selected cart items
+  if (selectedItems.length > 0) {
+    isFetchingRef.current = true;
+    const fetchCheckoutData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const selectedItemIds = selectedItems.map((item: any) => item.id);
+        console.log('Fetching checkout with IDs:', selectedItemIds);
+        const response = await api.post('/order', selectedItemIds);
+        if (response.data.status !== 'success') {
+          throw new Error(response.data.message || 'Không thể tải dữ liệu đơn hàng');
         }
-      };
-      fetchCheckoutData();
-    }
-  }, [dispatch, selectedItems]);
+        dispatch(setCheckoutData(response.data.data));
+      } catch (err) {
+        let errorMessage = 'Đã xảy ra lỗi. Vui lòng thử lại.';
+        if (err && typeof err === 'object' && 'response' in err && (err as any).response?.data?.message) {
+          errorMessage = (err as any).response.data.message;
+        } else if (err instanceof Error) {
+          errorMessage = err.message;
+        }
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+        isFetchingRef.current = false;
+      }
+    };
+    fetchCheckoutData();
+  }
+  // Case 2: Buy now checkout
+  else if (BuynowRequest) {
+    isFetchingRef.current = true;
+    const fetchBuyNowCheckoutData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        console.log('Fetching buy now with:', BuynowRequest);
+        const response = await api.post('/order/buy-now', BuynowRequest);
+        if (response.data.status !== 'success') {
+          throw new Error(response.data.message || 'Không thể tải dữ liệu đơn hàng');
+        }
+        dispatch(setCheckoutData(response.data.data));
+      } catch (err) {
+        let errorMessage = 'Đã xảy ra lỗi. Vui lòng thử lại.';
+        if (err && typeof err === 'object' && 'response' in err && (err as any).response?.data?.message) {
+          errorMessage = (err as any).response.data.message;
+        } else if (err instanceof Error) {
+          errorMessage = err.message;
+        }
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+        isFetchingRef.current = false;
+      }
+    };
+    fetchBuyNowCheckoutData();
+  }
+  // Case 3: No valid data to fetch
+  else {
+    setError('Không có sản phẩm nào được chọn');
+    setLoading(false);
+  }
+}, [dispatch, selectedItems, BuynowRequest]);
 
   const handleVoucherSelect = (storeId: number, voucher: DiscountCodeDTO | null): void => {
     setSelectedVouchers(prev => ({
@@ -232,6 +272,8 @@ const CheckoutPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+
+      console.log('Placing order with request:', orderRequest);
 
       const resultAction = await dispatch(createOrder(orderRequest));
       if (createOrder.fulfilled.match(resultAction)) {
