@@ -9,6 +9,7 @@ import com.quadra.ecommerce_api.dto.custom.order.request.BuyNowRequest;
 import com.quadra.ecommerce_api.dto.custom.order.response.*;
 import com.quadra.ecommerce_api.entity.cart.CartItem;
 import com.quadra.ecommerce_api.entity.cart.CartItemAddon;
+import com.quadra.ecommerce_api.entity.discount.FlashSale;
 import com.quadra.ecommerce_api.entity.order.Order;
 import com.quadra.ecommerce_api.entity.order.OrderItem;
 import com.quadra.ecommerce_api.entity.order.OrderItemAddon;
@@ -27,6 +28,7 @@ import com.quadra.ecommerce_api.mapper.base.product.ProductVariantMapper;
 import com.quadra.ecommerce_api.mapper.base.store.CategoryMapper;
 import com.quadra.ecommerce_api.mapper.base.store.ItemTypeMapper;
 import com.quadra.ecommerce_api.mapper.base.store.StoreMapper;
+import com.quadra.ecommerce_api.repository.flashsale.FlashSaleRepo;
 import com.quadra.ecommerce_api.repository.order.OrderDiscountRepository;
 import com.quadra.ecommerce_api.repository.product.AddonRepo;
 import com.quadra.ecommerce_api.service.customer.address.AddressService;
@@ -63,8 +65,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/order")
 public class OrderController extends AbstractBuyerController {
 
-
-     private final OrderService orderService;
+    private final OrderService orderService;
     private final OrderItemService orderItemService;
     private final UserService userService;
     private final AddressService addressService;
@@ -82,6 +83,8 @@ public class OrderController extends AbstractBuyerController {
     private final AddonRepo addonRepo;
     private final BalanceTransferService balanceTransferService;
     private final OrderHistoryService orderHistoryService;
+    private final FlashSaleRepo flashSaleRepo;
+
     // =============================
     // API lấy đơn hàng của user
     // =============================
@@ -93,71 +96,71 @@ public class OrderController extends AbstractBuyerController {
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrdersByUser(@AuthenticationPrincipal User user) {
         List<Order> orders = orderHistoryService.getOrdersByIdAndUserId(null, user.getId());
         List<OrderResponse> responses = orders.stream()
-            .map(order -> {
-                OrderResponse response = new OrderResponse();
-                response.setId(order.getId());
-                response.setStatus(order.getStatus());
-                response.setShippingMethod(order.getShippingMethod());
-                response.setPaymentMethod(order.getPaymentMethod());
-                response.setTotalAmount(order.getTotalAmount());
-                response.setNote(order.getNote());
-                response.setCreatedAt(order.getCreatedAt());
-                response.setUpdatedAt(order.getUpdatedAt());
-                
-                // Thông tin cửa hàng
-                Store store = order.getStore();
-                if (store != null) {
-                    OrderStoreResponse storeResponse = new OrderStoreResponse();
-                    storeResponse.setId(store.getId());
-                    storeResponse.setName(store.getName());
-                    storeResponse.setImage(store.getLogoUrl());
-                    response.setStore(storeResponse);
-                }
-                
-                // Lấy thông tin sản phẩm của đơn hàng
-                List<OrderItem> orderItems = orderItemService.getOrderItemsByOrderId(order.getId());
-                List<OrderItemResponse> itemResponses = orderItems.stream().map(orderItem -> {
-                    OrderItemResponse itemResponse = new OrderItemResponse();
-                    itemResponse.setId(orderItem.getId());
-                    itemResponse.setQuantity(orderItem.getQuantity());
-                    itemResponse.setPriceAtTime(orderItem.getPriceAtTime());
-                    ProductVariant variant = orderItem.getVariant();
-                    OrderProductVariantResponse variantResponse = new OrderProductVariantResponse();
-                    variantResponse.setId(variant.getId());
-                    variantResponse.setSku(variant.getSku());
-                    variantResponse.setImageUrl(variant.getImageUrl());
-                    variantResponse.setPrice(variant.getPrice());
-                    Product product = variant.getProduct();
-                    OrderProductResponse productResponse = new OrderProductResponse();
-                    productResponse.setId(product.getId());
-                    productResponse.setName(product.getName());
-                    productResponse.setThumbnailUrl(product.getThumbnailUrl());
-                    productResponse.setDescription(product.getDescription());
-                    productResponse.setSlug(product.getSlug());
-                    productResponse.setIsActive(product.isActive());
-                    productResponse.setCategory(categoryMapper.toDto(product.getCategory()));
-                    productResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
-                    variantResponse.setProduct(productResponse);
-                    variantResponse.setAltText(product.getName());
-                    variantResponse.setIsActive(variant.isActive());
-                    variantResponse.setStockQuantity(variant.getStockQuantity());
-                    if (response.getStore() != null) {
-                        variantResponse.setStore(response.getStore());
+                .map(order -> {
+                    OrderResponse response = new OrderResponse();
+                    response.setId(order.getId());
+                    response.setStatus(order.getStatus());
+                    response.setShippingMethod(order.getShippingMethod());
+                    response.setPaymentMethod(order.getPaymentMethod());
+                    response.setTotalAmount(order.getTotalAmount());
+                    response.setNote(order.getNote());
+                    response.setCreatedAt(order.getCreatedAt());
+                    response.setUpdatedAt(order.getUpdatedAt());
+
+                    // Thông tin cửa hàng
+                    Store store = order.getStore();
+                    if (store != null) {
+                        OrderStoreResponse storeResponse = new OrderStoreResponse();
+                        storeResponse.setId(store.getId());
+                        storeResponse.setName(store.getName());
+                        storeResponse.setImage(store.getLogoUrl());
+                        response.setStore(storeResponse);
                     }
-                    itemResponse.setProductVariant(variantResponse);
-                    itemResponse.setCreatedAt(orderItem.getCreatedAt());
-                    itemResponse.setUpdatedAt(orderItem.getUpdatedAt());
-                    itemResponse.setAddons(new ArrayList<>());
-                    itemResponse.setTotalItemPrice(orderItem.getPriceAtTime().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
-                    return itemResponse;
-                }).toList();
-                response.setOrderItemResponses(itemResponses);
-                
-                // Shipping cost mặc định
-                response.setShippingCost(BigDecimal.valueOf(30000));
-                return response;
-            })
-            .toList();
+
+                    // Lấy thông tin sản phẩm của đơn hàng
+                    List<OrderItem> orderItems = orderItemService.getOrderItemsByOrderId(order.getId());
+                    List<OrderItemResponse> itemResponses = orderItems.stream().map(orderItem -> {
+                        OrderItemResponse itemResponse = new OrderItemResponse();
+                        itemResponse.setId(orderItem.getId());
+                        itemResponse.setQuantity(orderItem.getQuantity());
+                        itemResponse.setPriceAtTime(orderItem.getPriceAtTime());
+                        ProductVariant variant = orderItem.getVariant();
+                        OrderProductVariantResponse variantResponse = new OrderProductVariantResponse();
+                        variantResponse.setId(variant.getId());
+                        variantResponse.setSku(variant.getSku());
+                        variantResponse.setImageUrl(variant.getImageUrl());
+                        variantResponse.setPrice(variant.getPrice());
+                        Product product = variant.getProduct();
+                        OrderProductResponse productResponse = new OrderProductResponse();
+                        productResponse.setId(product.getId());
+                        productResponse.setName(product.getName());
+                        productResponse.setThumbnailUrl(product.getThumbnailUrl());
+                        productResponse.setDescription(product.getDescription());
+                        productResponse.setSlug(product.getSlug());
+                        productResponse.setIsActive(product.isActive());
+                        productResponse.setCategory(categoryMapper.toDto(product.getCategory()));
+                        productResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
+                        variantResponse.setProduct(productResponse);
+                        variantResponse.setAltText(product.getName());
+                        variantResponse.setIsActive(variant.isActive());
+                        variantResponse.setStockQuantity(variant.getStockQuantity());
+                        if (response.getStore() != null) {
+                            variantResponse.setStore(response.getStore());
+                        }
+                        itemResponse.setProductVariant(variantResponse);
+                        itemResponse.setCreatedAt(orderItem.getCreatedAt());
+                        itemResponse.setUpdatedAt(orderItem.getUpdatedAt());
+                        itemResponse.setAddons(new ArrayList<>());
+                        itemResponse.setTotalItemPrice(orderItem.getPriceAtTime().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
+                        return itemResponse;
+                    }).toList();
+                    response.setOrderItemResponses(itemResponses);
+
+                    // Shipping cost mặc định
+                    response.setShippingCost(BigDecimal.valueOf(30000));
+                    return response;
+                })
+                .toList();
         return ResponseEntity.ok(ApiResponseUtils.wrapSuccess(responses));
     }
 
@@ -166,76 +169,73 @@ public class OrderController extends AbstractBuyerController {
                                                                                      @RequestParam("status") OrderStatus status) {
         List<Order> orders = orderHistoryService.getOrdersByStatusAndUserId(status, user.getId());
         List<OrderResponse> responses = orders.stream()
-            .map(order -> {
-                OrderResponse response = new OrderResponse();
-                response.setId(order.getId());
-                response.setStatus(order.getStatus());
-                response.setShippingMethod(order.getShippingMethod());
-                response.setPaymentMethod(order.getPaymentMethod());
-                response.setTotalAmount(order.getTotalAmount());
-                response.setNote(order.getNote());
-                response.setCreatedAt(order.getCreatedAt());
-                response.setUpdatedAt(order.getUpdatedAt());
-                
-                // Thông tin cửa hàng
-                Store store = order.getStore();
-                if (store != null) {
-                    OrderStoreResponse storeResponse = new OrderStoreResponse();
-                    storeResponse.setId(store.getId());
-                    storeResponse.setName(store.getName());
-                    storeResponse.setImage(store.getLogoUrl());
-                    response.setStore(storeResponse);
-                }
-                
-                // Lấy thông tin sản phẩm của đơn hàng
-                List<OrderItem> orderItems = orderItemService.getOrderItemsByOrderId(order.getId());
-                List<OrderItemResponse> itemResponses = orderItems.stream().map(orderItem -> {
-                    OrderItemResponse itemResponse = new OrderItemResponse();
-                    itemResponse.setId(orderItem.getId());
-                    itemResponse.setQuantity(orderItem.getQuantity());
-                    itemResponse.setPriceAtTime(orderItem.getPriceAtTime());
-                    ProductVariant variant = orderItem.getVariant();
-                    OrderProductVariantResponse variantResponse = new OrderProductVariantResponse();
-                    variantResponse.setId(variant.getId());
-                    variantResponse.setSku(variant.getSku());
-                    variantResponse.setImageUrl(variant.getImageUrl());
-                    variantResponse.setPrice(variant.getPrice());
-                    Product product = variant.getProduct();
-                    OrderProductResponse productResponse = new OrderProductResponse();
-                    productResponse.setId(product.getId());
-                    productResponse.setName(product.getName());
-                    productResponse.setThumbnailUrl(product.getThumbnailUrl());
-                    productResponse.setDescription(product.getDescription());
-                    productResponse.setSlug(product.getSlug());
-                    productResponse.setIsActive(product.isActive());
-                    productResponse.setCategory(categoryMapper.toDto(product.getCategory()));
-                    productResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
-                    variantResponse.setProduct(productResponse);
-                    variantResponse.setAltText(product.getName());
-                    variantResponse.setIsActive(variant.isActive());
-                    variantResponse.setStockQuantity(variant.getStockQuantity());
-                    if (response.getStore() != null) {
-                        variantResponse.setStore(response.getStore());
+                .map(order -> {
+                    OrderResponse response = new OrderResponse();
+                    response.setId(order.getId());
+                    response.setStatus(order.getStatus());
+                    response.setShippingMethod(order.getShippingMethod());
+                    response.setPaymentMethod(order.getPaymentMethod());
+                    response.setTotalAmount(order.getTotalAmount());
+                    response.setNote(order.getNote());
+                    response.setCreatedAt(order.getCreatedAt());
+                    response.setUpdatedAt(order.getUpdatedAt());
+
+                    // Thông tin cửa hàng
+                    Store store = order.getStore();
+                    if (store != null) {
+                        OrderStoreResponse storeResponse = new OrderStoreResponse();
+                        storeResponse.setId(store.getId());
+                        storeResponse.setName(store.getName());
+                        storeResponse.setImage(store.getLogoUrl());
+                        response.setStore(storeResponse);
                     }
-                    itemResponse.setProductVariant(variantResponse);
-                    itemResponse.setCreatedAt(orderItem.getCreatedAt());
-                    itemResponse.setUpdatedAt(orderItem.getUpdatedAt());
-                    itemResponse.setAddons(new ArrayList<>());
-                    itemResponse.setTotalItemPrice(orderItem.getPriceAtTime().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
-                    return itemResponse;
-                }).toList();
-                response.setOrderItemResponses(itemResponses);
-                
-                // Shipping cost mặc định
-                response.setShippingCost(BigDecimal.valueOf(30000));
-                return response;
-            })
-            .toList();
+
+                    // Lấy thông tin sản phẩm của đơn hàng
+                    List<OrderItem> orderItems = orderItemService.getOrderItemsByOrderId(order.getId());
+                    List<OrderItemResponse> itemResponses = orderItems.stream().map(orderItem -> {
+                        OrderItemResponse itemResponse = new OrderItemResponse();
+                        itemResponse.setId(orderItem.getId());
+                        itemResponse.setQuantity(orderItem.getQuantity());
+                        itemResponse.setPriceAtTime(orderItem.getPriceAtTime());
+                        ProductVariant variant = orderItem.getVariant();
+                        OrderProductVariantResponse variantResponse = new OrderProductVariantResponse();
+                        variantResponse.setId(variant.getId());
+                        variantResponse.setSku(variant.getSku());
+                        variantResponse.setImageUrl(variant.getImageUrl());
+                        variantResponse.setPrice(variant.getPrice());
+                        Product product = variant.getProduct();
+                        OrderProductResponse productResponse = new OrderProductResponse();
+                        productResponse.setId(product.getId());
+                        productResponse.setName(product.getName());
+                        productResponse.setThumbnailUrl(product.getThumbnailUrl());
+                        productResponse.setDescription(product.getDescription());
+                        productResponse.setSlug(product.getSlug());
+                        productResponse.setIsActive(product.isActive());
+                        productResponse.setCategory(categoryMapper.toDto(product.getCategory()));
+                        productResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
+                        variantResponse.setProduct(productResponse);
+                        variantResponse.setAltText(product.getName());
+                        variantResponse.setIsActive(variant.isActive());
+                        variantResponse.setStockQuantity(variant.getStockQuantity());
+                        if (response.getStore() != null) {
+                            variantResponse.setStore(response.getStore());
+                        }
+                        itemResponse.setProductVariant(variantResponse);
+                        itemResponse.setCreatedAt(orderItem.getCreatedAt());
+                        itemResponse.setUpdatedAt(orderItem.getUpdatedAt());
+                        itemResponse.setAddons(new ArrayList<>());
+                        itemResponse.setTotalItemPrice(orderItem.getPriceAtTime().multiply(BigDecimal.valueOf(orderItem.getQuantity())));
+                        return itemResponse;
+                    }).toList();
+                    response.setOrderItemResponses(itemResponses);
+
+                    // Shipping cost mặc định
+                    response.setShippingCost(BigDecimal.valueOf(30000));
+                    return response;
+                })
+                .toList();
         return ResponseEntity.ok(ApiResponseUtils.wrapSuccess(responses));
     }
-
-   
-
 
     @PostMapping
     @Transactional
@@ -287,11 +287,13 @@ public class OrderController extends AbstractBuyerController {
             BigDecimal shippingCost = BigDecimal.valueOf(30000); // Phí vận chuyển cố định
             List<OrderItemResponse> orderItemResponses = new ArrayList<>();
 
-            // Bước 4: Tạo và lưu OrderItem (không trừ tồn kho)
+            // Bước 4: Tạo và lưu OrderItem
             for (CartItem cartItem : storeCartItems) {
                 ProductVariant variant = cartItem.getVariant();
-                BigDecimal priceAtTime = variant.getPrice();
                 int quantity = cartItem.getQuantity();
+
+                // ✅ TÍNH GIÁ VỚI FLASH SALE - CHỈ TÍNH 1 LẦN DUY NHẤT TẠI ĐÂY
+                BigDecimal priceAtTime = calculatePriceWithFlashSale(variant, quantity);
                 BigDecimal itemTotal = priceAtTime.multiply(BigDecimal.valueOf(quantity));
 
                 // Tạo OrderItem và liên kết với Order
@@ -299,7 +301,7 @@ public class OrderController extends AbstractBuyerController {
                         .variant(variant)
                         .order(order)
                         .quantity(quantity)
-                        .priceAtTime(priceAtTime)
+                        .priceAtTime(priceAtTime) // ✅ LƯU GIÁ ĐÃ BAO GỒM FLASH SALE
                         .build();
 
                 // Lưu OrderItem
@@ -331,45 +333,19 @@ public class OrderController extends AbstractBuyerController {
 
                 itemTotal = itemTotal.add(addonTotal);
 
-                // Tạo OrderItemResponse
-                OrderItemResponse orderItemResponse = new OrderItemResponse();
-                orderItemResponse.setId(orderItem.getId());
+                // ✅ SỬ DỤNG HELPER METHOD ĐỂ TẠO RESPONSE VỚI FLASH SALE
                 Store store = order.getStore();
                 OrderStoreResponse orderStoreResponse = new OrderStoreResponse();
                 orderStoreResponse.setId(store.getId());
                 orderStoreResponse.setName(store.getName());
                 orderStoreResponse.setImage(store.getLogoUrl());
 
-                OrderProductVariantResponse orderProductVariantResponse = new OrderProductVariantResponse();
-                orderProductVariantResponse.setId(variant.getId());
-
-                OrderProductResponse orderProductResponse = new OrderProductResponse();
-                Product product = variant.getProduct();
-                orderProductResponse.setId(product.getId());
-                orderProductResponse.setName(product.getName());
-                orderProductResponse.setThumbnailUrl(product.getThumbnailUrl());
-                orderProductResponse.setDescription(product.getDescription());
-                orderProductResponse.setSlug(product.getSlug());
-                orderProductResponse.setIsActive(product.isActive());
-                orderProductResponse.setCategory(categoryMapper.toDto(product.getCategory()));
-                orderProductResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
-
-                orderProductVariantResponse.setProduct(orderProductResponse);
-                orderProductVariantResponse.setAltText(variant.getProduct().getName());
-                orderProductVariantResponse.setImageUrl(variant.getImageUrl());
-                orderProductVariantResponse.setSku(variant.getSku());
-                orderProductVariantResponse.setIsActive(variant.isActive());
-                orderProductVariantResponse.setStockQuantity(variant.getStockQuantity());
-                orderProductVariantResponse.setPrice(variant.getPrice());
-                orderProductVariantResponse.setStore(orderStoreResponse);
-
-                orderItemResponse.setProductVariant(orderProductVariantResponse);
-                orderItemResponse.setQuantity(quantity);
-                orderItemResponse.setPriceAtTime(priceAtTime);
-                orderItemResponse.setCreatedAt(orderItem.getCreatedAt());
-                orderItemResponse.setUpdatedAt(orderItem.getUpdatedAt());
-                orderItemResponse.setAddons(addonResponses);
-                orderItemResponse.setTotalItemPrice(itemTotal);
+                OrderItemResponse orderItemResponse = createOrderItemResponseWithFlashSale(
+                        orderItem,
+                        addonResponses,
+                        itemTotal,
+                        orderStoreResponse
+                );
 
                 orderItemResponses.add(orderItemResponse);
                 totalAmount = totalAmount.add(itemTotal);
@@ -384,7 +360,6 @@ public class OrderController extends AbstractBuyerController {
                     .map(item -> item.getVariant().getProduct().getId())
                     .collect(Collectors.toList());
 
-            // *** PHẦN QUAN TRỌNG: Lấy voucher với context ***
             List<DiscountCodeDTO> availableVouchers = discountCodeService
                     .getApplicableDiscountCodesWithContext(storeId, productIds, user.getId());
 
@@ -409,6 +384,9 @@ public class OrderController extends AbstractBuyerController {
             orderResponse.setOrderItemResponses(orderItemResponses);
             orderResponse.setShippingCost(shippingCost);
             orderResponse.setAvailableVouchers(availableVouchers);
+
+            // ✅ THÊM THỐNG KÊ FLASH SALE CHO ORDER
+            setFlashSaleStatsForOrder(orderResponse, orderItemResponses);
 
             orderResponses.add(orderResponse);
         }
@@ -456,9 +434,9 @@ public class OrderController extends AbstractBuyerController {
         // Lưu Order để có ID
         order = orderService.save(order);
 
-        // Tính toán giá và tổng tiền
-        BigDecimal priceAtTime = variant.getPrice();
+        // ✅ TÍNH GIÁ VỚI FLASH SALE - CHỈ TÍNH 1 LẦN DUY NHẤT TẠI ĐÂY
         int quantity = buyNowRequest.getQuantity();
+        BigDecimal priceAtTime = calculatePriceWithFlashSale(variant, quantity);
         BigDecimal itemTotal = priceAtTime.multiply(BigDecimal.valueOf(quantity));
 
         // Tạo OrderItem
@@ -466,7 +444,7 @@ public class OrderController extends AbstractBuyerController {
                 .variant(variant)
                 .order(order)
                 .quantity(quantity)
-                .priceAtTime(priceAtTime)
+                .priceAtTime(priceAtTime) // ✅ LƯU GIÁ ĐÃ BAO GỒM FLASH SALE
                 .build();
 
         // Lưu OrderItem
@@ -505,7 +483,7 @@ public class OrderController extends AbstractBuyerController {
         itemTotal = itemTotal.add(addonTotal);
 
         // Tính phí vận chuyển
-        BigDecimal shippingCost = BigDecimal.valueOf(30000); // Phí vận chuyển cố định
+        BigDecimal shippingCost = BigDecimal.valueOf(30000);
 
         // Cập nhật totalAmount cho Order (bao gồm phí vận chuyển)
         order.setTotalAmount(itemTotal.add(shippingCost));
@@ -523,39 +501,13 @@ public class OrderController extends AbstractBuyerController {
         orderStoreResponse.setName(store.getName());
         orderStoreResponse.setImage(store.getLogoUrl());
 
-        OrderProductVariantResponse orderProductVariantResponse = new OrderProductVariantResponse();
-        orderProductVariantResponse.setId(variant.getId());
-
-        OrderProductResponse orderProductResponse = new OrderProductResponse();
-        Product product = variant.getProduct();
-        orderProductResponse.setId(product.getId());
-        orderProductResponse.setName(product.getName());
-        orderProductResponse.setThumbnailUrl(product.getThumbnailUrl());
-        orderProductResponse.setDescription(product.getDescription());
-        orderProductResponse.setSlug(product.getSlug());
-        orderProductResponse.setIsActive(product.isActive());
-        orderProductResponse.setCategory(categoryMapper.toDto(product.getCategory()));
-        orderProductResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
-
-        orderProductVariantResponse.setProduct(orderProductResponse);
-        orderProductVariantResponse.setAltText(variant.getProduct().getName());
-        orderProductVariantResponse.setImageUrl(variant.getImageUrl());
-        orderProductVariantResponse.setSku(variant.getSku());
-        orderProductVariantResponse.setIsActive(variant.isActive());
-        orderProductVariantResponse.setStockQuantity(variant.getStockQuantity());
-        orderProductVariantResponse.setPrice(variant.getPrice());
-        orderProductVariantResponse.setStore(orderStoreResponse);
-
-        // Tạo OrderItemResponse
-        OrderItemResponse orderItemResponse = new OrderItemResponse();
-        orderItemResponse.setId(orderItem.getId());
-        orderItemResponse.setProductVariant(orderProductVariantResponse);
-        orderItemResponse.setQuantity(quantity);
-        orderItemResponse.setPriceAtTime(priceAtTime);
-        orderItemResponse.setCreatedAt(orderItem.getCreatedAt());
-        orderItemResponse.setUpdatedAt(orderItem.getUpdatedAt());
-        orderItemResponse.setAddons(addonResponses);
-        orderItemResponse.setTotalItemPrice(itemTotal);
+        // ✅ SỬ DỤNG HELPER METHOD ĐỂ TẠO RESPONSE VỚI FLASH SALE
+        OrderItemResponse orderItemResponse = createOrderItemResponseWithFlashSale(
+                orderItem,
+                addonResponses,
+                itemTotal,
+                orderStoreResponse
+        );
 
         // Tạo OrderResponse
         OrderResponse orderResponse = new OrderResponse();
@@ -571,6 +523,9 @@ public class OrderController extends AbstractBuyerController {
         orderResponse.setOrderItemResponses(List.of(orderItemResponse));
         orderResponse.setShippingCost(shippingCost);
         orderResponse.setAvailableVouchers(availableVouchers);
+
+        // ✅ THÊM THỐNG KÊ FLASH SALE CHO ORDER
+        setFlashSaleStatsForOrder(orderResponse, List.of(orderItemResponse));
 
         // Tạo OrderPageResponse
         OrderPageResponse orderPageResponse = new OrderPageResponse();
@@ -683,8 +638,146 @@ public class OrderController extends AbstractBuyerController {
         } catch (Exception ex) {
             throw new ExCustom(HttpStatus.INTERNAL_SERVER_ERROR, "Có lỗi xảy ra khi tạo đơn hàng mới");
         }
-
     }
 
+    // ================================
+    // ✅ HELPER METHODS CHO FLASH SALE
+    // ================================
 
+    /**
+     * Lấy thông tin Flash Sale cho OrderItem
+     */
+    private OrderItemFlashSaleInfo getFlashSaleInfoForOrderItem(OrderItem orderItem) {
+        ProductVariant variant = orderItem.getVariant();
+        Product product = variant.getProduct();
+
+        Optional<FlashSale> flashSaleOpt = flashSaleRepo.findActiveByProduct_Id(product.getId());
+
+        if (flashSaleOpt.isPresent()) {
+            FlashSale flashSale = flashSaleOpt.get();
+
+            // Kiểm tra còn số lượng trong flash sale không
+            if (flashSale.getSoldCount() + orderItem.getQuantity() <= flashSale.getQuantity()) {
+                return OrderItemFlashSaleInfo.builder()
+                        .id(flashSale.getId())
+                        .percentageDiscount(Double.valueOf(flashSale.getPercentageDiscount()))
+                        .quantity(flashSale.getQuantity())
+                        .soldCount(flashSale.getSoldCount())
+                        .endTime(flashSale.getEndTime().toString())
+                        .build();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * ✅ TÍNH GIÁ VỚI FLASH SALE CHO PRODUCT VARIANT - CHỈ DÙNG KHI TẠO ORDER
+     */
+    private BigDecimal calculatePriceWithFlashSale(ProductVariant variant, int quantity) {
+        Product product = variant.getProduct();
+        BigDecimal originalPrice = variant.getPrice();
+
+        Optional<FlashSale> flashSaleOpt = flashSaleRepo.findActiveByProduct_Id(product.getId());
+
+        if (flashSaleOpt.isPresent()) {
+            FlashSale flashSale = flashSaleOpt.get();
+
+            // Kiểm tra còn số lượng trong flash sale không
+            if (flashSale.getSoldCount() + quantity <= flashSale.getQuantity()) {
+                // Áp dụng giá flash sale
+                return originalPrice.multiply(
+                        BigDecimal.valueOf(100 - flashSale.getPercentageDiscount())
+                ).divide(BigDecimal.valueOf(100), 2, BigDecimal.ROUND_HALF_UP);
+            }
+        }
+
+        return originalPrice; // Không có flash sale hoặc hết số lượng
+    }
+
+    /**
+     * Tạo OrderItemResponse với thông tin Flash Sale
+     */
+    private OrderItemResponse createOrderItemResponseWithFlashSale(OrderItem orderItem,
+                                                                   List<OrderItemAddonResponse> addonResponses,
+                                                                   BigDecimal itemTotal,
+                                                                   OrderStoreResponse storeResponse) {
+        ProductVariant variant = orderItem.getVariant();
+        Product product = variant.getProduct();
+
+        // Tạo product response
+        OrderProductResponse orderProductResponse = new OrderProductResponse();
+        orderProductResponse.setId(product.getId());
+        orderProductResponse.setName(product.getName());
+        orderProductResponse.setThumbnailUrl(product.getThumbnailUrl());
+        orderProductResponse.setDescription(product.getDescription());
+        orderProductResponse.setSlug(product.getSlug());
+        orderProductResponse.setIsActive(product.isActive());
+        orderProductResponse.setCategory(categoryMapper.toDto(product.getCategory()));
+        orderProductResponse.setItemType(itemTypeMapper.toDto(product.getItemType()));
+
+        // Tạo variant response
+        OrderProductVariantResponse orderProductVariantResponse = new OrderProductVariantResponse();
+        orderProductVariantResponse.setId(variant.getId());
+        orderProductVariantResponse.setProduct(orderProductResponse);
+        orderProductVariantResponse.setAltText(variant.getProduct().getName());
+        orderProductVariantResponse.setImageUrl(variant.getImageUrl());
+        orderProductVariantResponse.setSku(variant.getSku());
+        orderProductVariantResponse.setIsActive(variant.isActive());
+        orderProductVariantResponse.setStockQuantity(variant.getStockQuantity());
+        orderProductVariantResponse.setPrice(variant.getPrice());
+        orderProductVariantResponse.setStore(storeResponse);
+
+        // Tạo order item response
+        OrderItemResponse orderItemResponse = new OrderItemResponse();
+        orderItemResponse.setId(orderItem.getId());
+        orderItemResponse.setProductVariant(orderProductVariantResponse);
+        orderItemResponse.setQuantity(orderItem.getQuantity());
+        orderItemResponse.setPriceAtTime(orderItem.getPriceAtTime());
+        orderItemResponse.setCreatedAt(orderItem.getCreatedAt());
+        orderItemResponse.setUpdatedAt(orderItem.getUpdatedAt());
+        orderItemResponse.setAddons(addonResponses);
+        orderItemResponse.setTotalItemPrice(itemTotal);
+
+        // ✅ THÊM THÔNG TIN FLASH SALE
+        OrderItemFlashSaleInfo flashSaleInfo = getFlashSaleInfoForOrderItem(orderItem);
+        if (flashSaleInfo != null) {
+            orderItemResponse.setFlashSale(flashSaleInfo);
+            orderItemResponse.setOriginalPrice(variant.getPrice()); // Giá gốc
+            orderItemResponse.setHasFlashSale(true);
+        } else {
+            orderItemResponse.setHasFlashSale(false);
+        }
+
+        return orderItemResponse;
+    }
+
+    /**
+     * Tính thống kê Flash Sale cho OrderResponse
+     */
+    private void setFlashSaleStatsForOrder(OrderResponse orderResponse, List<OrderItemResponse> orderItemResponses) {
+        boolean hasFlashSaleItems = false;
+        BigDecimal totalFlashSavings = BigDecimal.ZERO;
+        int flashSaleItemCount = 0;
+
+        for (OrderItemResponse item : orderItemResponses) {
+            if (item.getHasFlashSale() != null && item.getHasFlashSale()) {
+                hasFlashSaleItems = true;
+                flashSaleItemCount++;
+
+                // Tính tiền tiết kiệm từ flash sale
+                if (item.getOriginalPrice() != null) {
+                    BigDecimal originalTotal = item.getOriginalPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    BigDecimal flashSaleTotal = item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    BigDecimal savings = originalTotal.subtract(flashSaleTotal);
+                    totalFlashSavings = totalFlashSavings.add(savings);
+                }
+            }
+        }
+
+        // Set thông tin Flash Sale cho OrderResponse
+        orderResponse.setHasFlashSaleItems(hasFlashSaleItems);
+        orderResponse.setTotalFlashSavings(totalFlashSavings);
+        orderResponse.setFlashSaleItemCount(flashSaleItemCount);
+    }
 }

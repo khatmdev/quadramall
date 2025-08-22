@@ -607,7 +607,7 @@ public class DiscountCodeServiceImpl implements DiscountCodeService {
 
     private void validateCreateDiscountCodeRequest(CreateDiscountCodeRequest request) {
         // Validate percentage discount value
-        if (request.getDiscountType() == com.quadra.ecommerce_api.enums.discount.DiscountType.PERCENTAGE) {
+        if (request.getDiscountType() == DiscountType.PERCENTAGE) {
             if (request.getDiscountValue().compareTo(BigDecimal.ONE) < 0 ||
                     request.getDiscountValue().compareTo(BigDecimal.valueOf(100)) > 0) {
                 throw new BusinessException("Giá trị giảm theo phần trăm phải từ 1% đến 100%");
@@ -621,7 +621,7 @@ public class DiscountCodeServiceImpl implements DiscountCodeService {
         }
 
         // Validate max discount value for percentage type
-        if (request.getDiscountType() == com.quadra.ecommerce_api.enums.discount.DiscountType.PERCENTAGE &&
+        if (request.getDiscountType() == DiscountType.PERCENTAGE &&
                 request.getMaxDiscountValue() == null) {
             throw new BusinessException("Giá trị giảm tối đa là bắt buộc khi sử dụng giảm theo phần trăm");
         }

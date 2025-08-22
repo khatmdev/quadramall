@@ -59,4 +59,13 @@ public class OrderResponse {
     private BigDecimal discountAmount;
     private BigDecimal originalAmount; // Tổng tiền trước giảm giá
 
+    // ✅ THÊM THÔNG TIN FLASH SALE CHO ĐỪN HÀNG
+    @Schema(description = "Có sản phẩm Flash Sale trong đơn hàng hay không", example = "true")
+    private Boolean hasFlashSaleItems = false;
+
+    @Schema(description = "Tổng tiền tiết kiệm từ Flash Sale", example = "50000")
+    private BigDecimal totalFlashSavings = BigDecimal.ZERO;
+
+    @Schema(description = "Số lượng sản phẩm có Flash Sale", example = "2")
+    private Integer flashSaleItemCount = 0;
 }
