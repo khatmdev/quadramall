@@ -11,13 +11,17 @@ interface ErrorResponse {
     message?: string;
 }
 
-export const getProducts = async (storeId: string): Promise<Product[]> => {
+
+/**
+ * Lấy danh sách sản phẩm ACTIVE của cửa hàng
+ */
+export const getActiveProducts = async (storeId: string): Promise<Product[]> => {
     try {
         const token = localStorage.getItem('token');
         if (!token) {
             throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
         }
-        const response = await api.get(`/seller/products/${storeId}`, {
+        const response = await api.get(`/seller/products/${storeId}/active`, {
             headers: {
                 Authorization: `Bearer ${token}`,
             },
@@ -25,11 +29,65 @@ export const getProducts = async (storeId: string): Promise<Product[]> => {
         return response.data;
     } catch (error) {
         const axiosError = error as AxiosError<ErrorResponse>;
-        console.error('Error fetching products:', axiosError.response?.data || axiosError.message);
+        console.error('Error fetching active products:', axiosError.response?.data || axiosError.message);
+        throw new Error(
+            axiosError.response?.data?.message || 'Không thể tải danh sách sản phẩm đang hoạt động. Vui lòng thử lại sau.'
+        );
+    }
+};
+
+/**
+ * Lấy danh sách sản phẩm INACTIVE của cửa hàng
+ */
+export const getInactiveProducts = async (storeId: string): Promise<Product[]> => {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
+        }
+        const response = await api.get(`/seller/products/${storeId}/inactive`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const axiosError = error as AxiosError<ErrorResponse>;
+        console.error('Error fetching inactive products:', axiosError.response?.data || axiosError.message);
+        throw new Error(
+            axiosError.response?.data?.message || 'Không thể tải danh sách sản phẩm đã vô hiệu hóa. Vui lòng thử lại sau.'
+        );
+    }
+};
+
+/**
+ * Lấy TẤT CẢ sản phẩm của cửa hàng (cả active và inactive)
+ */
+export const getAllProducts = async (storeId: string): Promise<Product[]> => {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
+        }
+        const response = await api.get(`/seller/products/${storeId}/all`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const axiosError = error as AxiosError<ErrorResponse>;
+        console.error('Error fetching all products:', axiosError.response?.data || axiosError.message);
         throw new Error(
             axiosError.response?.data?.message || 'Không thể tải danh sách sản phẩm. Vui lòng thử lại sau.'
         );
     }
+};
+
+
+export const getProducts = async (storeId: string): Promise<Product[]> => {
+    console.warn('getProducts() is deprecated. Use getActiveProducts(), getInactiveProducts(), or getAllProducts() instead.');
+    return getAllProducts(storeId);
 };
 
 export const getItemTypes = async (): Promise<ItemTypeDTO[]> => {
@@ -121,6 +179,57 @@ export const updateProduct = async (productId: string, productData: ProductUpdat
         console.error('Error updating product:', axiosError.response?.data || axiosError.message);
         throw new Error(
             axiosError.response?.data?.message || 'Không thể cập nhật sản phẩm. Vui lòng thử lại sau.'
+        );
+    }
+};
+
+
+/**
+ * Kích hoạt sản phẩm
+ */
+export const activateProduct = async (productId: string): Promise<void> => {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
+        }
+        console.log('Activating product with ID:', productId);
+        await api.patch(`/seller/products/${productId}/activate`, {}, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        console.log('Product activated successfully');
+    } catch (error) {
+        const axiosError = error as AxiosError<ErrorResponse>;
+        console.error('Error activating product:', axiosError.response?.data || axiosError.message);
+        throw new Error(
+            axiosError.response?.data?.message || 'Không thể kích hoạt sản phẩm. Vui lòng thử lại sau.'
+        );
+    }
+};
+
+/**
+ * Vô hiệu hóa sản phẩm
+ */
+export const deactivateProduct = async (productId: string): Promise<void> => {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
+        }
+        console.log('Deactivating product with ID:', productId);
+        await api.patch(`/seller/products/${productId}/deactivate`, {}, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        console.log('Product deactivated successfully');
+    } catch (error) {
+        const axiosError = error as AxiosError<ErrorResponse>;
+        console.error('Error deactivating product:', axiosError.response?.data || axiosError.message);
+        throw new Error(
+            axiosError.response?.data?.message || 'Không thể vô hiệu hóa sản phẩm. Vui lòng thử lại sau.'
         );
     }
 };

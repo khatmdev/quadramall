@@ -27,17 +27,55 @@ public class ProductServiceRes {
         this.productMapper = productMapper;
     }
 
-    public List<ProductDTO> getStoreProducts(User user, Long storeId) {
-        // Lấy danh sách sản phẩm
-        System.out.println("User: " + user.getEmail()+" StoreId"+storeId);
-        List<Product> products = productRepo.findByStoreIdAndOwnerId(storeId, user.getId());
-        System.out.println("products: " + products);
+    /**
+     * Lấy danh sách sản phẩm ACTIVE của cửa hàng
+     */
+    public List<ProductDTO> getActiveStoreProducts(User user, Long storeId) {
+        System.out.println("Getting ACTIVE products - User: " + user.getEmail() + " StoreId: " + storeId);
+        List<Product> products = productRepo.findActiveByStoreIdAndOwnerId(storeId, user.getId());
+        System.out.println("Active products found: " + products.size());
 
         if (products.isEmpty()) {
-            throw new EntityNotFoundException("Không tìm thấy sản phẩm hoặc bạn không có quyền truy cập cửa hàng này");
+            return List.of(); // Trả về list rỗng thay vì throw exception
         }
 
-        // Chuyển đổi sang DTO và tính toán các trường bổ sung
+        return mapProductsToDTO(products);
+    }
+
+    /**
+     * Lấy danh sách sản phẩm INACTIVE của cửa hàng
+     */
+    public List<ProductDTO> getInactiveStoreProducts(User user, Long storeId) {
+        System.out.println("Getting INACTIVE products - User: " + user.getEmail() + " StoreId: " + storeId);
+        List<Product> products = productRepo.findInactiveByStoreIdAndOwnerId(storeId, user.getId());
+        System.out.println("Inactive products found: " + products.size());
+
+        if (products.isEmpty()) {
+            return List.of(); // Trả về list rỗng thay vì throw exception
+        }
+
+        return mapProductsToDTO(products);
+    }
+
+    /**
+     * Lấy TẤT CẢ sản phẩm của cửa hàng (cả active và inactive)
+     */
+    public List<ProductDTO> getAllStoreProducts(User user, Long storeId) {
+        System.out.println("Getting ALL products - User: " + user.getEmail() + " StoreId: " + storeId);
+        List<Product> products = productRepo.findAllByStoreIdAndOwnerId(storeId, user.getId());
+        System.out.println("All products found: " + products.size());
+
+        if (products.isEmpty()) {
+            return List.of(); // Trả về list rỗng thay vì throw exception
+        }
+
+        return mapProductsToDTO(products);
+    }
+
+    /**
+     * Helper method để map Product sang ProductDTO (tái sử dụng logic)
+     */
+    private List<ProductDTO> mapProductsToDTO(List<Product> products) {
         return products.stream().map(product -> {
             ProductDTO dto = productMapper.toDTO(product);
 
