@@ -2,6 +2,7 @@ package com.quadra.ecommerce_api.service.payment;
 
 import com.quadra.ecommerce_api.entity.notification.Notification;
 import com.quadra.ecommerce_api.entity.order.Order;
+import com.quadra.ecommerce_api.entity.user.Role;
 import com.quadra.ecommerce_api.entity.user.User;
 import com.quadra.ecommerce_api.entity.wallet.Wallet;
 import com.quadra.ecommerce_api.entity.wallet.WalletTransaction;
@@ -12,6 +13,7 @@ import com.quadra.ecommerce_api.enums.payment.TransactionStatus;
 import com.quadra.ecommerce_api.enums.wallet.WalletTransactionType;
 import com.quadra.ecommerce_api.exception.ExCustom;
 import com.quadra.ecommerce_api.repository.order.OrderRepo;
+import com.quadra.ecommerce_api.repository.user.RoleRepo;
 import com.quadra.ecommerce_api.repository.user.UserRepo;
 import com.quadra.ecommerce_api.repository.wallet.WalletRepo;
 import com.quadra.ecommerce_api.repository.wallet.WalletTransactionRepo;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @Slf4j
@@ -37,10 +40,25 @@ public class BalanceTransferService {
     private final OrderRepo orderRepo;
     private final NotificationService notificationService;
     private final UserRepo userRepo;
+    private final RoleRepo roleRepo;
 
     // Admin user ID (configure this based on your system)
-    private static final Long ADMIN_USER_ID = 33L;
     private static final long AUTO_CONFIRM_DAYS = 3;
+
+    /**
+     * Lấy userID của admin dựa trên vai trò ADMIN
+     * @return Long userID của admin
+     * @throws ExCustom nếu không tìm thấy admin
+     */
+    public Long getAdminUserId() {
+        Role adminRole = roleRepo.findByName("ROLE_ADMIN")
+                .orElseThrow(() -> new ExCustom(HttpStatus.NOT_FOUND, "Role ADMIN not found"));
+        Set<User> adminUsers = adminRole.getUsers();
+        if (adminUsers.isEmpty()) {
+            throw new ExCustom(HttpStatus.NOT_FOUND, "No users found with ADMIN role");
+        }
+        return adminUsers.iterator().next().getId();
+    }
 
     /**
      * Transfer money to admin when order is paid (for WALLET/ONLINE payments)
@@ -52,7 +70,7 @@ public class BalanceTransferService {
             return;
         }
 
-        User admin = userRepo.findById(ADMIN_USER_ID)
+        User admin = userRepo.findById(getAdminUserId())
                 .orElseThrow(() -> new ExCustom(HttpStatus.NOT_FOUND, "Admin user not found"));
 
         Wallet adminWallet = walletRepo.findByUserId(admin.getId());
@@ -98,7 +116,7 @@ public class BalanceTransferService {
      */
     @Transactional
     public void transferToShopOnConfirmed(Order order) {
-        User admin = userRepo.findById(ADMIN_USER_ID)
+        User admin = userRepo.findById(getAdminUserId())
                 .orElseThrow(() -> new ExCustom(HttpStatus.NOT_FOUND, "Admin user not found"));
         User shopOwner = order.getStore().getOwner();
 
@@ -174,7 +192,7 @@ public class BalanceTransferService {
         }
 
         User customer = order.getCustomer();
-        User admin = userRepo.findById(ADMIN_USER_ID)
+        User admin = userRepo.findById(getAdminUserId())
                 .orElseThrow(() -> new ExCustom(HttpStatus.NOT_FOUND, "Admin user not found"));
 
         Wallet customerWallet = walletRepo.findByUserId(customer.getId());
@@ -281,7 +299,7 @@ public class BalanceTransferService {
 
         switch (newStatus) {
             case CONFIRMED:
-                    transferToShopOnConfirmed(order);
+                transferToShopOnConfirmed(order);
                 break;
             case CANCELLED:
                 if (List.of(PaymentMethod.WALLET, PaymentMethod.ONLINE).contains(order.getPaymentMethod())) {

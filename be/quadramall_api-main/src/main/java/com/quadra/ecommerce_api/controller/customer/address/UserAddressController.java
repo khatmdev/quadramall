@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/public/users/addresses")
+@RequestMapping("/users/addresses")
 public class UserAddressController {
     private final AddressService addressService;
     private final AddressMapper addressMapper;

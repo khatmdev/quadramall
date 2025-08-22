@@ -1,15 +1,20 @@
 package com.quadra.ecommerce_api.service.shiping;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.quadra.ecommerce_api.dto.custom.shipping.request.*;
-import com.quadra.ecommerce_api.dto.custom.shipping.response.*;
-import com.quadra.ecommerce_api.entity.shipping.*;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.ApproveShipperRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.RejectShipperRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.ShipperRegistrationRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.ShipperRegistrationResponse;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.ShipperRegistrationStatusResponse;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.ShipperStatsDTO;
+import com.quadra.ecommerce_api.entity.shipping.Shipper;
+import com.quadra.ecommerce_api.entity.shipping.ShipperRegistration;
 import com.quadra.ecommerce_api.entity.user.Role;
 import com.quadra.ecommerce_api.entity.user.User;
 import com.quadra.ecommerce_api.enums.shipping.RegistrationStatus;
 import com.quadra.ecommerce_api.exception.ExCustom;
-import com.quadra.ecommerce_api.repository.shipping.*;
+import com.quadra.ecommerce_api.repository.shipping.ShipperRegistrationRepository;
+import com.quadra.ecommerce_api.repository.shipping.ShipperRepository;
 import com.quadra.ecommerce_api.repository.user.RoleRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,10 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor

@@ -1,7 +1,7 @@
 package com.quadra.ecommerce_api.dto.custom.discount.request;
 
-import com.quadra.ecommerce_api.enums.discount.DiscountType;
 import com.quadra.ecommerce_api.enums.discount.AppliesTo;
+import com.quadra.ecommerce_api.enums.discount.DiscountType;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

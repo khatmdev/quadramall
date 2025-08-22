@@ -1,7 +1,6 @@
 package com.quadra.ecommerce_api.dto.custom.order.response;
 
-import com.quadra.ecommerce_api.dto.base.product.AddonDTO;
-import com.quadra.ecommerce_api.dto.base.product.ProductVariantDTO;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -35,4 +34,27 @@ public class OrderItemResponse {
 
     @Schema(description = "Tổng giá của mặt hàng, bao gồm cả addon", example = "220.00")
     private BigDecimal totalItemPrice;
+
+    // ✅ THÊM CÁC FIELD CHO FLASH SALE
+    @Schema(description = "Thông tin Flash Sale nếu có")
+    private OrderItemFlashSaleInfo flashSale;
+
+    @Schema(description = "Giá gốc trước khi áp dụng Flash Sale", example = "120.00")
+    private BigDecimal originalPrice;
+
+    @Schema(description = "Có áp dụng Flash Sale hay không", example = "true")
+    private Boolean hasFlashSale;
+
+    @Schema(description = "Số tiền tiết kiệm được từ Flash Sale", example = "40.00")
+    private BigDecimal flashSaleSavings;
+
+    // Helper method để tự động tính flashSaleSavings
+    public BigDecimal getFlashSaleSavings() {
+        if (hasFlashSale != null && hasFlashSale && originalPrice != null && priceAtTime != null) {
+            BigDecimal originalTotal = originalPrice.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal flashSaleTotal = priceAtTime.multiply(BigDecimal.valueOf(quantity));
+            return originalTotal.subtract(flashSaleTotal);
+        }
+        return BigDecimal.ZERO;
+    }
 }

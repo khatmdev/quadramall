@@ -3,7 +3,6 @@ package com.quadra.ecommerce_api.service.payment;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quadra.ecommerce_api.config.payment.VNPayConfig;
-import com.quadra.ecommerce_api.dto.custom.order.request.OrderRequest;
 import com.quadra.ecommerce_api.dto.custom.payment.request.DepositRequest;
 import com.quadra.ecommerce_api.entity.notification.Notification;
 import com.quadra.ecommerce_api.entity.order.Order;

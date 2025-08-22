@@ -1,7 +1,6 @@
 // com.quadra.ecommerce_api.service.payment.PaymentService.java
 package com.quadra.ecommerce_api.service.payment;
 
-import com.quadra.ecommerce_api.dto.base.payment.PaymentTransactionDTO;
 import com.quadra.ecommerce_api.dto.custom.payment.response.OrderResult;
 import com.quadra.ecommerce_api.entity.notification.Notification;
 import com.quadra.ecommerce_api.entity.order.Order;
@@ -58,6 +57,7 @@ public class PaymentService {
     private final OrderService orderService;
     private final OrderDiscountRepository orderDiscountRepository;
     private final BalanceTransferService balanceTransferService;
+    private final FlashSaleHelper flashSaleHelper;
 
     public Optional<Order> getOrderRepo(Long id) {
         return orderRepo.findById(id);
@@ -87,7 +87,7 @@ public class PaymentService {
                 }
             }
 
-            // Trừ tồn kho
+            // Trừ tồn kho và cập nhật Flash Sale
             for (OrderItem item : orderItems) {
                 ProductVariant variant = item.getVariant();
                 int oldStock = variant.getStockQuantity();
@@ -95,6 +95,9 @@ public class PaymentService {
                 productService.updateProductVariant(variant);
                 log.info("Updated stock for variant {}: {} -> {}",
                         variant.getSku(), oldStock, variant.getStockQuantity());
+
+                // ✅ CẬP NHẬT FLASH SALE SOLD COUNT
+                flashSaleHelper.updateFlashSaleSoldCount(variant.getProduct().getId(), item.getQuantity());
             }
 
             // Tạo payment transaction
@@ -120,7 +123,7 @@ public class PaymentService {
             // Log chi tiết order
             logOrderDetails(order);
 
-            // ✅ TẠO DELIVERY ASSIGNMENT SAU KHI THANH TOÁN THÀNH CÔNG
+            // Tạo delivery assignment sau khi thanh toán thành công
             orderService.createDeliveryAssignment(order);
 
             notificationService.sendNotification(
@@ -144,6 +147,7 @@ public class PaymentService {
 
         return new OrderResult(joinedOrderIds, "COD", "Đặt hàng thành công");
     }
+
 
     // Helper method để log chi tiết order
     private void logOrderDetails(Order order) {
@@ -184,6 +188,7 @@ public class PaymentService {
     }
 
 
+    // CẬP NHẬT METHOD handleOrderPaymentWallet:
     @Transactional
     public OrderResult handleOrderPaymentWallet(List<Order> orders, User user) {
         Wallet wallet = walletRepo.findByUserId(user.getId());
@@ -208,10 +213,14 @@ public class PaymentService {
                     }
                 }
 
+                // Trừ tồn kho và cập nhật Flash Sale
                 for (OrderItem item : orderItems) {
                     ProductVariant variant = item.getVariant();
                     variant.setStockQuantity(variant.getStockQuantity() - item.getQuantity());
                     productService.updateProductVariant(variant);
+
+                    // ✅ CẬP NHẬT FLASH SALE SOLD COUNT
+                    flashSaleHelper.updateFlashSaleSoldCount(variant.getProduct().getId(), item.getQuantity());
                 }
 
                 order.setPaymentMethod(PaymentMethod.WALLET);
@@ -219,7 +228,6 @@ public class PaymentService {
                 orderRepo.save(order);
 
                 balanceTransferService.processOrderStatusChange(order, OrderStatus.PROCESSING);
-
 
                 walletTransaction.setAmount(order.getTotalAmount());
                 walletTransaction.setCreatedAt(LocalDateTime.now());
@@ -244,12 +252,11 @@ public class PaymentService {
                 wallet.setBalance(wallet.getBalance().subtract(order.getTotalAmount()));
 
                 orderService.confirmVoucherUsage(order);
-                // ✅ TẠO DELIVERY ASSIGNMENT SAU KHI THANH TOÁN THÀNH CÔNG
+                // Tạo delivery assignment sau khi thanh toán thành công
                 orderService.createDeliveryAssignment(order);
                 walletRepo.save(wallet);
-
-
             }
+
             notificationService.sendNotification(
                     user,
                     NotificationType.PAYMENT_SUCCESS,
@@ -303,8 +310,6 @@ public class PaymentService {
         if (paymentTransaction.getStatus().equals(TransactionStatus.COMPLETED)) {
             cartService.deleteCartItemsByOrderIds(orders.stream().map(Order::getId).toList(), user.getId());
         }
-
-
 
         return new OrderResult(joinedOrderIds, paymentTransaction.getStatus().toString(), "");
     }

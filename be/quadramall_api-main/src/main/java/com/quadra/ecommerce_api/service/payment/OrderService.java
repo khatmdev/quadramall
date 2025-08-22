@@ -6,6 +6,7 @@ import com.quadra.ecommerce_api.dto.custom.order.response.*;
 import com.quadra.ecommerce_api.dto.custom.payment.response.OrderResult;
 import com.quadra.ecommerce_api.entity.address.Address;
 import com.quadra.ecommerce_api.entity.discount.DiscountCode;
+import com.quadra.ecommerce_api.entity.discount.FlashSale;
 import com.quadra.ecommerce_api.entity.discount.UserDiscount;
 import com.quadra.ecommerce_api.entity.notification.Notification;
 import com.quadra.ecommerce_api.entity.order.Order;
@@ -36,6 +37,7 @@ import com.quadra.ecommerce_api.mapper.base.store.ItemTypeMapper;
 import com.quadra.ecommerce_api.repository.address.AddressRepo;
 import com.quadra.ecommerce_api.repository.discount.DiscountCodeRepository;
 import com.quadra.ecommerce_api.repository.discount.UserDiscountRepository;
+import com.quadra.ecommerce_api.repository.flashsale.FlashSaleRepo;
 import com.quadra.ecommerce_api.repository.order.OrderDiscountRepository;
 import com.quadra.ecommerce_api.repository.order.OrderItemRepo;
 import com.quadra.ecommerce_api.repository.order.OrderRepo;
@@ -57,7 +59,10 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service("paymentOrderService")
@@ -79,6 +84,7 @@ public class OrderService {
     private final DiscountCodeService discountCodeService;
     private final OrderDiscountRepository orderDiscountRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
+    private final FlashSaleRepo flashSaleRepo;
 
     private static final BigDecimal SHIPPING_COST = BigDecimal.valueOf(30000);
     private final BalanceTransferService balanceTransferService;
@@ -86,6 +92,7 @@ public class OrderService {
     private final OrderItemService orderItemService;
     private final CategoryMapper categoryMapper;
     private final ItemTypeMapper itemTypeMapper;
+    private final FlashSaleHelper flashSaleHelper;
 
     public Order save(Order order) {
         return orderRepository.save(order);
@@ -128,13 +135,53 @@ public class OrderService {
     }
 
     /**
-     * Tính tổng tiền của các items trong order (không bao gồm shipping và discount)
+     * ✅ FIX: Tính tổng tiền của các items trong order (không bao gồm shipping và discount)
+     * SỬ DỤNG GIÁ ĐÃ LƯU TRONG ORDER ITEM (priceAtTime) - đã bao gồm Flash Sale
      */
     private BigDecimal calculateItemsTotal(Order order) {
         List<OrderItem> orderItems = orderItemRepo.findByOrderId(order.getId());
         return orderItems.stream()
-                .map(item -> item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity())))
+                .map(item -> {
+                    // ✅ SỬ DỤNG GIÁ ĐÃ LƯU SẴN (đã bao gồm Flash Sale nếu có)
+                    BigDecimal itemTotal = item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity()));
+
+                    // Thêm giá addon nếu có
+                    List<OrderItemAddon> addons = orderItemAddonService.getByOrderItem(item);
+                    BigDecimal addonTotal = addons.stream()
+                            .map(OrderItemAddon::getPriceAdjustAtTime)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    return itemTotal.add(addonTotal);
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * ✅ HELPER METHOD: Lấy thông tin Flash Sale cho OrderItem để hiển thị
+     * CHỈ dùng để tạo response, KHÔNG dùng để tính giá
+     */
+    private OrderItemFlashSaleInfo getFlashSaleInfoForOrderItem(OrderItem orderItem) {
+        ProductVariant variant = orderItem.getVariant();
+        Product product = variant.getProduct();
+
+        Optional<FlashSale> flashSaleOpt = flashSaleRepo.findActiveByProduct_Id(product.getId());
+
+        if (flashSaleOpt.isPresent()) {
+            FlashSale flashSale = flashSaleOpt.get();
+
+            // Kiểm tra còn số lượng trong flash sale không
+            if (flashSale.getSoldCount() + orderItem.getQuantity() <= flashSale.getQuantity()) {
+                return OrderItemFlashSaleInfo.builder()
+                        .id(flashSale.getId())
+                        .percentageDiscount(Double.valueOf(flashSale.getPercentageDiscount()))
+                        .quantity(flashSale.getQuantity())
+                        .soldCount(flashSale.getSoldCount())
+                        .endTime(flashSale.getEndTime().toString())
+                        .build();
+            }
+        }
+
+        return null; // Không có Flash Sale hoặc hết số lượng
     }
 
     @Transactional
@@ -172,7 +219,7 @@ public class OrderService {
             OrderShipping orderShipping = createOrderShipping(order, user, orderRequest.getAddressId());
             orderShippingRepository.save(orderShipping);
 
-            // Tính tổng tiền items (không bao gồm shipping)
+            // ✅ FIX: SỬ DỤNG GIÁ ĐÃ LƯU SẴN (đã bao gồm Flash Sale)
             BigDecimal itemsTotal = calculateItemsTotal(order);
 
             // Tính tổng tiền bao gồm shipping cost
@@ -205,6 +252,10 @@ public class OrderService {
 
             // Set final total amount
             order.setTotalAmount(finalTotalAmount);
+
+            // ✅ REMOVE: Không cần cập nhật giá Flash Sale nữa vì đã tính khi tạo order
+            // updateOrderItemsWithFlashSale(order);
+
             orderRepository.save(order);
             ordersResponse.add(order);
         }
@@ -283,7 +334,7 @@ public class OrderService {
             // Lấy danh sách OrderItems của order
             List<OrderItem> orderItems = orderItemRepo.findByOrderId(order.getId());
 
-            // Tính toán discount amount
+            // ✅ FIX: Tính toán discount amount (áp dụng trên giá đã có Flash Sale)
             BigDecimal discountAmount = calculateDiscountForOrder(discountCode, orderItems);
 
             log.info("Calculated discount amount: {} for order {}", discountAmount, order.getId());
@@ -320,17 +371,28 @@ public class OrderService {
     }
 
     /**
-     * Tính toán discount amount cho order dựa trên loại voucher
+     * ✅ FIX: Tính toán discount amount cho order dựa trên loại voucher
+     * SỬ DỤNG GIÁ ĐÃ LƯU TRONG ORDER ITEM (đã bao gồm Flash Sale)
      */
     private BigDecimal calculateDiscountForOrder(DiscountCode discountCode, List<OrderItem> orderItems) {
         BigDecimal discountAmount = BigDecimal.ZERO;
 
-        // Tính tổng giá trị đơn hàng (không bao gồm shipping)
+        // ✅ FIX: Tính tổng giá trị đơn hàng từ priceAtTime (đã bao gồm flash sale)
         BigDecimal orderTotal = orderItems.stream()
-                .map(item -> item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity())))
+                .map(item -> {
+                    BigDecimal itemTotal = item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity()));
+
+                    // Thêm giá addon nếu có
+                    List<OrderItemAddon> addons = orderItemAddonService.getByOrderItem(item);
+                    BigDecimal addonTotal = addons.stream()
+                            .map(OrderItemAddon::getPriceAdjustAtTime)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    return itemTotal.add(addonTotal);
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        log.info("Order total (without shipping): {}", orderTotal);
+        log.info("Order total (with flash sale already applied, without shipping): {}", orderTotal);
 
         // Kiểm tra minimum order amount
         if (orderTotal.compareTo(discountCode.getMinOrderAmount()) < 0) {
@@ -340,32 +402,24 @@ public class OrderService {
         }
 
         if (discountCode.getAppliesTo() == AppliesTo.SHOP) {
-            // Voucher áp dụng cho toàn shop - sử dụng method cũ
+            // Voucher áp dụng cho toàn shop
             discountAmount = discountCode.calculateDiscountAmount(orderTotal);
             log.info("Shop discount calculated: {}", discountAmount);
         } else if (discountCode.getAppliesTo() == AppliesTo.PRODUCTS) {
-            // Voucher áp dụng cho sản phẩm cụ thể - sử dụng method mới
-            discountAmount = discountCode.calculateDiscountForProducts(orderItems);
+            // ✅ FIX: Voucher áp dụng cho sản phẩm cụ thể - sử dụng giá đã có Flash Sale
+            discountAmount = calculateProductsDiscountWithExistingPrices(discountCode, orderItems);
             log.info("Products discount calculated: {}", discountAmount);
-
-            // Log chi tiết discount cho từng sản phẩm
-            Map<Long, BigDecimal> discountDetails = discountCode.calculateDiscountByProduct(orderItems);
-            discountDetails.forEach((itemId, discount) ->
-                    log.info("  - OrderItem {}: discount {}", itemId, discount)
-            );
         }
 
         // Đảm bảo discount không vượt quá tổng giá trị đơn hàng
         return discountAmount.min(orderTotal);
     }
 
-
-
     /**
-     * Tính discount cho voucher loại PRODUCTS
-     * Áp dụng discount cho MỖI sản phẩm được chỉ định
+     * ✅ FIX: Tính discount cho voucher loại PRODUCTS với giá đã áp dụng Flash Sale
+     * SỬ DỤNG priceAtTime thay vì tính lại Flash Sale
      */
-    private BigDecimal calculateProductsDiscount(DiscountCode discountCode, List<OrderItem> orderItems) {
+    private BigDecimal calculateProductsDiscountWithExistingPrices(DiscountCode discountCode, List<OrderItem> orderItems) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
 
         // Lấy danh sách product IDs mà voucher áp dụng
@@ -383,13 +437,22 @@ public class OrderService {
             if (voucherProductIds.contains(productId)) {
                 log.info("Product {} is eligible for discount", productId);
 
-                BigDecimal itemTotal = orderItem.getPriceAtTime()
-                        .multiply(BigDecimal.valueOf(orderItem.getQuantity()));
+                // ✅ FIX: Sử dụng giá đã lưu (đã bao gồm Flash Sale) thay vì tính lại
+                BigDecimal itemTotalWithExistingPrice = orderItem.getPriceAtTime().multiply(BigDecimal.valueOf(orderItem.getQuantity()));
+
+                // Thêm giá addon nếu có
+                List<OrderItemAddon> addons = orderItemAddonService.getByOrderItem(orderItem);
+                BigDecimal addonTotal = addons.stream()
+                        .map(OrderItemAddon::getPriceAdjustAtTime)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                itemTotalWithExistingPrice = itemTotalWithExistingPrice.add(addonTotal);
+
                 BigDecimal itemDiscount = BigDecimal.ZERO;
 
                 if (discountCode.getDiscountType() == DiscountType.PERCENTAGE) {
-                    // Giảm % cho sản phẩm này
-                    itemDiscount = itemTotal.multiply(discountCode.getDiscountValue())
+                    // Giảm % cho sản phẩm này (trên giá đã có trong OrderItem)
+                    itemDiscount = itemTotalWithExistingPrice.multiply(discountCode.getDiscountValue())
                             .divide(BigDecimal.valueOf(100), 2, BigDecimal.ROUND_HALF_UP);
 
                     // Áp dụng max discount cho mỗi sản phẩm nếu có
@@ -399,24 +462,22 @@ public class OrderService {
                     }
                 } else {
                     // FIXED_AMOUNT - Giảm số tiền cố định cho MỖI số lượng sản phẩm
-                    // Ví dụ: Giảm 50k/sản phẩm, mua 3 cái = giảm 150k
                     BigDecimal discountPerUnit = discountCode.getDiscountValue();
                     itemDiscount = discountPerUnit.multiply(BigDecimal.valueOf(orderItem.getQuantity()));
 
-                    // Đảm bảo không giảm quá giá trị sản phẩm
-                    itemDiscount = itemDiscount.min(itemTotal);
+                    // Đảm bảo không giảm quá giá trị sản phẩm (đã có Flash Sale)
+                    itemDiscount = itemDiscount.min(itemTotalWithExistingPrice);
                 }
 
-                log.info("Item discount for product {}: {} (quantity: {})",
+                log.info("Item discount for product {}: {} (quantity: {}, using existing price with flash sale)",
                         productId, itemDiscount, orderItem.getQuantity());
                 totalDiscount = totalDiscount.add(itemDiscount);
             }
         }
 
-        log.info("Total products discount calculated: {}", totalDiscount);
+        log.info("Total products discount calculated (using existing prices): {}", totalDiscount);
         return totalDiscount;
     }
-
 
     @Transactional
     public OrderResult handleOrderPaymentVNPay(Map<String, String> params, List<Long> orderIds) {
@@ -430,7 +491,7 @@ public class OrderService {
         Long userId = orders.getFirst().getCustomer().getId();
 
         for (Order order : orders) {
-            // ✅ Tạo transaction code theo format mới: baseTxnRef + "-" + orderId
+            // Tạo transaction code theo format mới: baseTxnRef + "-" + orderId
             String expectedTxnRef = vnpTxnRef + "-" + order.getId();
 
             PaymentTransaction transaction = paymentTransactionRepository
@@ -438,7 +499,7 @@ public class OrderService {
                     .orElseThrow(() -> new ExCustom(HttpStatus.BAD_REQUEST,
                             "Không tìm thấy giao dịch cho order " + order.getId() + " với code " + expectedTxnRef));
 
-            // ✅ Lưu VNPay response vào gateway_response
+            // Lưu VNPay response vào gateway_response
             if (transactionCodeFromVNPay != null && !"0".equals(transactionCodeFromVNPay)) {
                 transaction.setGatewayResponse("VNPAY-" + transactionCodeFromVNPay);
             } else {
@@ -451,13 +512,18 @@ public class OrderService {
             if ("00".equals(responseCode)) {
                 // Kiểm tra tồn kho trước khi trừ
                 validateAndUpdateStock(order);
+
+                // ✅ CẬP NHẬT FLASH SALE SOLD COUNT KHI THANH TOÁN THÀNH CÔNG
+                updateFlashSaleSoldCountForOrder(order);
+
                 transaction.setStatus(TransactionStatus.COMPLETED);
                 balanceTransferService.processOrderStatusChange(order, OrderStatus.PROCESSING);
                 message = "Thanh toán thành công";
 
                 // Xác nhận sử dụng voucher nếu có
                 confirmVoucherUsage(order);
-                // ✅ TẠO DELIVERY ASSIGNMENT SAU KHI THANH TOÁN THÀNH CÔNG
+
+                // Tạo delivery assignment sau khi thanh toán thành công
                 createDeliveryAssignment(order);
 
                 notificationService.sendNotification(
@@ -487,6 +553,23 @@ public class OrderService {
         }
 
         return new OrderResult(vnpTxnRef, status, message);
+    }
+
+    private void updateFlashSaleSoldCountForOrder(Order order) {
+        log.info("Updating Flash Sale sold count for order: {}", order.getId());
+
+        List<OrderItem> orderItems = orderItemRepo.findByOrderId(order.getId());
+        for (OrderItem item : orderItems) {
+            ProductVariant variant = item.getVariant();
+            Long productId = variant.getProduct().getId();
+            int quantity = item.getQuantity();
+
+            // Cập nhật Flash Sale sold count
+            flashSaleHelper.updateFlashSaleSoldCount(productId, quantity);
+
+            log.info("Updated Flash Sale sold count for product {}: +{} items",
+                    variant.getProduct().getName(), quantity);
+        }
     }
 
     /**
@@ -533,7 +616,6 @@ public class OrderService {
         }
     }
 
-
     private void validateAndUpdateStock(Order order) {
         List<OrderItem> orderItems = orderItemRepo.findByOrderId(order.getId());
 
@@ -576,6 +658,7 @@ public class OrderService {
                     discountCode.getCode(), order.getId(), discountCode.getUsedCount());
         }
     }
+
     // START ================= HỦY ĐƠN =======================================
 
     @Transactional
@@ -596,13 +679,21 @@ public class OrderService {
             List<OrderItem> orderItems = orderItemRepo.findByOrderId(orderId);
             for (OrderItem item : orderItems) {
                 ProductVariant variant = item.getVariant();
+
+                // Hoàn nguyên tồn kho
                 variant.setStockQuantity(variant.getStockQuantity() + item.getQuantity());
                 productService.updateProductVariant(variant);
+
+                // ✅ HOÀN NGUYÊN FLASH SALE SOLD COUNT
+                flashSaleHelper.revertFlashSaleSoldCount(variant.getProduct().getId(), item.getQuantity());
+
+                log.info("Reverted stock and flash sale for product {}: restored {} items",
+                        variant.getProduct().getName(), item.getQuantity());
             }
         }
     }
-    // END  ========================= HỦY ĐƠN =================================//
 
+    // END  ========================= HỦY ĐƠN =================================//
 
     // START ======================== MUA LẠI =================================//
 
@@ -615,14 +706,11 @@ public class OrderService {
         // Lấy và validate OrderItems
         List<OrderItem> originalOrderItems = validateOrderItems(orderId);
 
-        // Validate stock và product status
-        validateProductAvailability(originalOrderItems);
-
         // Tạo đơn hàng mới
         Order newOrder = createNewOrder(originalOrder, user);
 
-        // Tạo OrderItems và tính toán giá
-        OrderCreationResult result = createOrderItemsFromOriginal(newOrder, originalOrderItems);
+        // ✅ FIX: Tạo OrderItems và tính toán giá với Flash Sale hiện tại
+        OrderCreationResult result = createOrderItemsFromOriginalWithCurrentFlashSale(newOrder, originalOrderItems);
 
         // Cập nhật tổng tiền và lưu
         BigDecimal shippingCost = BigDecimal.valueOf(30000);
@@ -666,20 +754,6 @@ public class OrderService {
         return originalOrderItems;
     }
 
-    private void validateProductAvailability(List<OrderItem> originalOrderItems) {
-        for (OrderItem orderItem : originalOrderItems) {
-            ProductVariant variant = orderItem.getVariant();
-            if (variant == null || !variant.isActive() || !variant.getProduct().isActive()) {
-                throw new ExCustom(HttpStatus.BAD_REQUEST,
-                        "Sản phẩm " + variant.getProduct().getName() + " không còn khả dụng");
-            }
-            if (variant.getStockQuantity() < orderItem.getQuantity()) {
-                throw new ExCustom(HttpStatus.BAD_REQUEST,
-                        "Sản phẩm " + variant.getProduct().getName() + " không đủ tồn kho. Còn lại: " + variant.getStockQuantity());
-            }
-        }
-    }
-
     private Order createNewOrder(Order originalOrder, User user) {
         Order newOrder = Order.builder()
                 .customer(user)
@@ -694,22 +768,29 @@ public class OrderService {
         return save(newOrder);
     }
 
-    private OrderCreationResult createOrderItemsFromOriginal(Order newOrder, List<OrderItem> originalOrderItems) {
+    /**
+     * ✅ FIX: Tạo OrderItems từ original với flash sale HIỆN TẠI
+     * CHỈ TÍNH FLASH SALE KHI TẠO ĐƠN HÀNG MỚI (MUA LẠI)
+     */
+    private OrderCreationResult createOrderItemsFromOriginalWithCurrentFlashSale(Order newOrder, List<OrderItem> originalOrderItems) {
         BigDecimal totalAmount = BigDecimal.ZERO;
         List<OrderItemResponse> orderItemResponses = new ArrayList<>();
 
         for (OrderItem originalOrderItem : originalOrderItems) {
             ProductVariant variant = originalOrderItem.getVariant();
-            BigDecimal currentPrice = variant.getPrice();
+            Product product = variant.getProduct();
             int quantity = originalOrderItem.getQuantity();
-            BigDecimal itemTotal = currentPrice.multiply(BigDecimal.valueOf(quantity));
 
-            // Tạo OrderItem mới
+            // ✅ TÍNH GIÁ HIỆN TẠI với Flash Sale (nếu có) - CHỈ KHI MUA LẠI
+            BigDecimal currentPriceWithFlashSale = flashSaleHelper.calculateFlashSalePrice(variant, quantity);
+            BigDecimal itemTotal = currentPriceWithFlashSale.multiply(BigDecimal.valueOf(quantity));
+
+            // Tạo OrderItem mới với giá hiện tại
             OrderItem newOrderItem = OrderItem.builder()
                     .variant(variant)
                     .order(newOrder)
                     .quantity(quantity)
-                    .priceAtTime(currentPrice)
+                    .priceAtTime(currentPriceWithFlashSale) // ✅ LƯU GIÁ ĐÃ BAO GỒM FLASH SALE
                     .build();
 
             orderItemService.save(newOrderItem);
@@ -803,6 +884,22 @@ public class OrderService {
         orderItemResponse.setAddons(addonResponses);
         orderItemResponse.setTotalItemPrice(itemTotal);
 
+        // ✅ THÊM THÔNG TIN FLASH SALE
+        OrderItemFlashSaleInfo flashSaleInfo = getFlashSaleInfoForOrderItem(orderItem);
+        if (flashSaleInfo != null) {
+            // Set flash sale info vào response
+            orderItemResponse.setFlashSale(flashSaleInfo);
+
+            // Tính original price (giá gốc trước khi giảm flash sale)
+            BigDecimal originalPrice = variant.getPrice();
+            orderItemResponse.setOriginalPrice(originalPrice);
+
+            // Set flag có flash sale
+            orderItemResponse.setHasFlashSale(true);
+        } else {
+            orderItemResponse.setHasFlashSale(false);
+        }
+
         return orderItemResponse;
     }
 
@@ -823,6 +920,26 @@ public class OrderService {
         orderStoreResponse.setName(store.getName());
         orderStoreResponse.setImage(store.getLogoUrl());
 
+        // ✅ TÍNH TOÁN THÔNG TIN FLASH SALE CHO TOÀN ĐƠN HÀNG
+        boolean hasFlashSaleItems = false;
+        BigDecimal totalFlashSavings = BigDecimal.ZERO;
+        int flashSaleItemCount = 0;
+
+        for (OrderItemResponse item : orderItemResponses) {
+            if (item.getHasFlashSale() != null && item.getHasFlashSale()) {
+                hasFlashSaleItems = true;
+                flashSaleItemCount++;
+
+                // Tính tiền tiết kiệm từ flash sale
+                if (item.getOriginalPrice() != null) {
+                    BigDecimal originalTotal = item.getOriginalPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    BigDecimal flashSaleTotal = item.getPriceAtTime().multiply(BigDecimal.valueOf(item.getQuantity()));
+                    BigDecimal savings = originalTotal.subtract(flashSaleTotal);
+                    totalFlashSavings = totalFlashSavings.add(savings);
+                }
+            }
+        }
+
         OrderResponse orderResponse = new OrderResponse();
         orderResponse.setId(newOrder.getId());
         orderResponse.setStore(orderStoreResponse);
@@ -837,12 +954,16 @@ public class OrderService {
         orderResponse.setShippingCost(shippingCost);
         orderResponse.setAvailableVouchers(availableVouchers);
 
+        // ✅ SET THÔNG TIN FLASH SALE
+        orderResponse.setHasFlashSaleItems(hasFlashSaleItems);
+        orderResponse.setTotalFlashSavings(totalFlashSavings);
+        orderResponse.setFlashSaleItemCount(flashSaleItemCount);
+
         OrderPageResponse orderPageResponse = new OrderPageResponse();
         orderPageResponse.setOrderResponse(List.of(orderResponse));
 
         return orderPageResponse;
     }
-
 
     // Inner class để wrap kết quả
     private static class OrderCreationResult {
@@ -859,8 +980,4 @@ public class OrderService {
     }
 
     // END ======================== MUA LẠI =================================//
-
-
-
-
 }

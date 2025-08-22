@@ -1,6 +1,5 @@
 package com.quadra.ecommerce_api.dto.custom.order.response;
 
-import com.quadra.ecommerce_api.dto.base.product.ProductDTO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;

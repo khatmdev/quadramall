@@ -1,12 +1,19 @@
 package com.quadra.ecommerce_api.service.shiping;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.quadra.ecommerce_api.dto.custom.shipping.request.*;
-import com.quadra.ecommerce_api.dto.custom.shipping.response.*;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.AcceptOrderRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.CancelDeliveryRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.request.CompleteDeliveryRequest;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.AvailableOrderDTO;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.DeliveryAssignmentDTO;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.DeliveryTimelineDTO;
+import com.quadra.ecommerce_api.dto.custom.shipping.response.DeliveryTrackingDTO;
 import com.quadra.ecommerce_api.entity.notification.Notification;
 import com.quadra.ecommerce_api.entity.order.Order;
-import com.quadra.ecommerce_api.entity.shipping.*;
+import com.quadra.ecommerce_api.entity.shipping.DeliveryAssignment;
+import com.quadra.ecommerce_api.entity.shipping.DeliveryConfirmation;
+import com.quadra.ecommerce_api.entity.shipping.OrderShipping;
+import com.quadra.ecommerce_api.entity.shipping.Shipper;
 import com.quadra.ecommerce_api.entity.user.User;
 import com.quadra.ecommerce_api.enums.notification.NotificationType;
 import com.quadra.ecommerce_api.enums.order.OrderStatus;
@@ -14,7 +21,10 @@ import com.quadra.ecommerce_api.enums.payment.PaymentMethod;
 import com.quadra.ecommerce_api.enums.shipping.DeliveryStatus;
 import com.quadra.ecommerce_api.exception.ExCustom;
 import com.quadra.ecommerce_api.repository.order.OrderRepo;
-import com.quadra.ecommerce_api.repository.shipping.*;
+import com.quadra.ecommerce_api.repository.shipping.DeliveryAssignmentRepository;
+import com.quadra.ecommerce_api.repository.shipping.DeliveryConfirmationRepository;
+import com.quadra.ecommerce_api.repository.shipping.OrderShippingRepo;
+import com.quadra.ecommerce_api.repository.shipping.ShipperRepository;
 import com.quadra.ecommerce_api.service.notification.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +39,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Random;
 
 @Service
@@ -50,9 +59,9 @@ public class DeliveryService {
         Shipper shipper = shipperRepository.findByUserId(shipperUser.getId())
                 .orElseThrow(() -> new ExCustom(HttpStatus.NOT_FOUND, "Không tìm thấy thông tin shipper"));
 
-
+        log.info("Get available check orders for shipper {}", shipper.getId());
         Page<DeliveryAssignment> assignments = deliveryAssignmentRepository.findAvailableOrders(pageable);
-
+        log.info("Get available orders for shipper {}", assignments.getContent());
         return assignments.map(this::mapToAvailableOrderDTO);
     }
 
@@ -386,6 +395,7 @@ public class DeliveryService {
 
     private AvailableOrderDTO mapToAvailableOrderDTO(DeliveryAssignment assignment) {
         Order order = assignment.getOrder();
+        log.info("CHECK MAPPP >>>>1");
         OrderShipping shipping = orderShippingRepository.findByOrder(order);
 
         AvailableOrderDTO dto = new AvailableOrderDTO();
@@ -395,7 +405,7 @@ public class DeliveryService {
         dto.setEstimatedPickupTime(LocalDateTime.now().plusHours(1));
         dto.setEstimatedDeliveryTime(assignment.getEstimatedDelivery());
         dto.setCreatedAt(order.getCreatedAt());
-
+        log.info("CHECK MAPPP >>>>2");
         // ✅ Tính tiền thu hộ
         dto.setCollectAmount(calculateCollectAmount(order));
 
