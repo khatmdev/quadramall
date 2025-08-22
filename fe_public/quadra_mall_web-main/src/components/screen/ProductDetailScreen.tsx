@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { fetchProductDetail } from '@/api/productApi';
 import { ProductDetailDTO } from '@/types/product/product_Detail';
 import ProductImages from '@/components/product_detail/ProductImages';
@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button';
 import ShopInfo from '@/components/product_detail/ShopInfo';
 import { mockData } from '@/data/mockData';
 import { api } from '@/main';
-import { RootState } from '@/store';
+import { AppDispatch, RootState } from '@/store';
 import { toast } from 'react-toastify';
 import { AxiosError } from 'axios';
+import { setBuynowRequest } from '@/store/Order/OrderSlice';
 import {addToCart} from "@/api/cartApi";
 
 const ProductDescription = React.lazy(() =>
@@ -26,6 +27,7 @@ const Voucher = React.lazy(() => import('@/components/product_detail/Voucher'));
 const ProductDetailScreen: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const dispatch = useDispatch<AppDispatch>();
   const { isAuthenticated } = useSelector((state: RootState) => state.auth);
   const [productDetail, setProductDetail] = useState<ProductDetailDTO | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
@@ -158,11 +160,23 @@ const ProductDetailScreen: React.FC = () => {
       return;
     }
 
+    dispatch(setBuynowRequest({
+          productVariantId: selectedVariantId,
+          quantity: quantity,
+          addonIds: selectedAddons,
+        }));
+      toast.success('Mua hàng !');
+
+
+
+
     checkAuth(() => {
       console.log(
         `Mua ngay: Product ID ${productDetail.id}, Variant ID ${selectedVariantId}, Addons: ${selectedAddons}, Quantity: ${quantity}`
       );
       navigate('/checkout');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
     });
   };
 

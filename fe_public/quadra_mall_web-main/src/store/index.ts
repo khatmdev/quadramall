@@ -12,7 +12,7 @@ import {useDispatch} from "react-redux";
 import shipperReducer from '@/store/Shipper/shipperSlice';
 import shipperOrderReducer from '@/store/Shipper/orderSlice';
 import availableOrderReducer from '@/store/Shipper/availableOrdersSlice';
-
+import chatReducer from '@/store/ChatBot/chatBotSlice';
 
 let _store : any;
 
@@ -46,7 +46,26 @@ export const getStore = () => {
         shipper : shipperReducer,
         shipperOrder: shipperOrderReducer,
         availableOrders : availableOrderReducer,
+
+           // ✅ Chat
+        chat: chatReducer,
+
       },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+          serializableCheck: {
+            // Ignore these action types
+            ignoredActions: [
+              'chat/sendStreamMessage/pending',
+              'chat/sendStreamMessage/fulfilled',
+              'chat/sendStreamMessage/rejected',
+            ],
+            // Ignore these field paths in all actions
+            ignoredActionsPaths: ['payload.onChunk'],
+            // Ignore these paths in the state
+            ignoredPaths: ['chat.streamingCallbacks'],
+          },
+        }),
     });
   }
   return _store;
