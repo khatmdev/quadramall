@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import MediaUpload from '@/components/layout/Product/ProductForm/MediaUpload';
 import BasicInfo from '@/components/layout/Product/ProductForm/BasicInfo';
 import ProductDescription from '@/components/layout/Product/ProductForm/ProductDescription';
@@ -10,6 +10,7 @@ import { useProductFormLogic } from './useProductFormLogic';
 import { ProductCreateDto } from '@/types/ProductCreate';
 import { ProductUpdateDto } from '@/types/ProductUpdateDto';
 import { Specification as SpecificationEdit } from '@/types/ProductEdit';
+import { Attribute } from '@/types/api'; // Nhập kiểu Attribute từ @/types/api
 
 interface ProductFormProps {
     onSave: (productData: ProductCreateDto | ProductUpdateDto) => Promise<void>;
@@ -45,6 +46,9 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
         handleSubmit,
     } = useProductFormLogic({ onSave, editProductId, storeId });
 
+    // Thêm trạng thái suggestions để nhận từ BasicInfo
+    const [suggestions, setSuggestions] = useState<Attribute[]>([]);
+
     const handleSubmitWithValidation = async () => {
         if (!productImages[0]) {
             alert('Vui lòng thêm ảnh bìa cho sản phẩm.');
@@ -76,26 +80,29 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
                         </div>
                     </div>
                     <div className="space-y-8">
+
+                        <BasicInfo
+                            productName={productName}
+                            setProductName={setProductName}
+                            selectedItemType={selectedItemType}
+                            setSelectedItemType={setSelectedItemType}
+                            suggestions={suggestions}
+                            setSuggestions={setSuggestions}
+                        />
                         <MediaUpload
                             productImages={productImages}
                             setProductImages={setProductImages}
                             productVideo={productVideo}
                             setProductVideo={setProductVideo}
                         />
-                        <BasicInfo
-                            productName={productName}
-                            setProductName={setProductName}
-                            selectedItemType={selectedItemType}
-                            setSelectedItemType={setSelectedItemType}
+                        <SpecificationsSection
+                            specifications={specifications as SpecificationEdit[]}
+                            setSpecifications={setSpecifications}
                         />
                         <ProductDescription
                             setDescription={setDescription}
                             collectDescriptionFiles={collectDescriptionFiles}
                             initialDescription={description}
-                        />
-                        <SpecificationsSection
-                            specifications={specifications as SpecificationEdit[]}
-                            setSpecifications={setSpecifications}
                         />
                         <AttributesSection
                             attributes={attributes}
@@ -105,6 +112,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
                             defaultValues={defaultValues}
                             setDefaultValues={setDefaultValues}
                             isEditing={!!editProductId}
+                            suggestions={suggestions} // Truyền suggestions vào AttributesSection
                         />
                         <AddonGroupsSection
                             addonGroups={addonGroups}

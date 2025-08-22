@@ -104,6 +104,27 @@ public interface ProductRepo extends JpaRepository<Product, Long> {
     @Query("SELECT p FROM Product p WHERE p.store.id = :storeId AND p.category.id = :categoryId AND p.isActive = true")
     List<Product> findByStoreIdAndCategoryIdAndIsActiveTrue(@Param("storeId") Long storeId, @Param("categoryId") Long categoryId);
 
+    /**
+     * Lấy sản phẩm active theo store và owner
+     */
+    @Query("SELECT p FROM Product p " +
+            "WHERE p.store.id = :storeId AND p.store.owner.id = :ownerId AND p.isActive = true")
+    List<Product> findActiveByStoreIdAndOwnerId(@Param("storeId") Long storeId, @Param("ownerId") Long ownerId);
+
+    /**
+     * Lấy sản phẩm inactive theo store và owner
+     */
+    @Query("SELECT p FROM Product p " +
+            "WHERE p.store.id = :storeId AND p.store.owner.id = :ownerId AND p.isActive = false")
+    List<Product> findInactiveByStoreIdAndOwnerId(@Param("storeId") Long storeId, @Param("ownerId") Long ownerId);
+
+    /**
+     * Lấy tất cả sản phẩm (cả active và inactive) theo store và owner
+     */
+    @Query("SELECT p FROM Product p " +
+            "WHERE p.store.id = :storeId AND p.store.owner.id = :ownerId")
+    List<Product> findAllByStoreIdAndOwnerId(@Param("storeId") Long storeId, @Param("ownerId") Long ownerId);
+
 
 
 }

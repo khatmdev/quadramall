@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, X, Upload, Info } from 'lucide-react';
+import { AutoComplete, Button, Input, Select, Modal, Checkbox, Upload as AntdUpload } from 'antd';
+import AttributeSuggestionModal from '@/components/common/AttributeSuggestionModal';
+import { Attribute as ApiAttribute } from '@/types/api';
 
 interface AttributeValue {
     attributeName: string;
@@ -30,6 +33,12 @@ interface DefaultValues {
     stock: number;
 }
 
+interface ItemType {
+    id: number;
+    name: string;
+    parent_id: number | null;
+}
+
 interface AttributesSectionProps {
     attributes: Attribute[];
     setAttributes: React.Dispatch<React.SetStateAction<Attribute[]>>;
@@ -38,6 +47,9 @@ interface AttributesSectionProps {
     defaultValues: DefaultValues;
     setDefaultValues: React.Dispatch<React.SetStateAction<DefaultValues>>;
     isEditing?: boolean;
+    productName?: string;
+    selectedItemType?: ItemType | null;
+    suggestions?: ApiAttribute[];
 }
 
 const TypesValueOptions = ['STRING', 'NUMBER', 'ALL'] as const;
@@ -51,14 +63,19 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                                                  defaultValues,
                                                                  setDefaultValues,
                                                                  isEditing = false,
+                                                                 productName = 'Sản phẩm',
+                                                                 selectedItemType,
+                                                                 suggestions = [],
                                                              }) => {
     const [valueErrors, setValueErrors] = useState<{ [key: string]: string }>({});
     const [variantErrors, setVariantErrors] = useState<{ [key: number]: { price?: string; stock?: string } }>({});
     const [batchPrice, setBatchPrice] = useState(0);
     const [batchStock, setBatchStock] = useState(0);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
-    const validateValue = (value: string, typesValue: TypesValue): string => {
-        if (!value.trim()) return 'Giá trị không được để trống';
+    const validateValue = (value: string | undefined, typesValue: TypesValue): string => {
+        if (!value || !value.trim()) return 'Giá trị không được để trống';
         if (typesValue === 'STRING') {
             if (/^\d+$/.test(value) || /^[\d.]+$/.test(value)) {
                 return 'Giá trị phải là chuỗi ký tự, không phải số';
@@ -156,7 +173,6 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                 if (!existingCombinations.has(comboString)) {
                     const isComplete = combination.every((combo) => combo.value.trim() !== '');
                     if (isComplete) {
-                        // Kiểm tra xem tổ hợp có trùng với biến thể hiện có
                         const existingVariant = prevVariants.find((variant) => {
                             if (variant.combination.length !== combination.length) return false;
                             return combination.every((combo, i) =>
@@ -170,13 +186,13 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                             newVariants.push({
                                 id: nextId++,
                                 combination,
-                                price: 0, // Giá trị mặc định, không dùng defaultValues
-                                stock: 0, // Giá trị mặc định, không dùng defaultValues
+                                price: 0,
+                                stock: 0,
                                 sku: '',
                                 image: null,
                                 altText: '',
                                 isActive: true,
-                                isSelected: isEditing ? false : true, // Khi edit, variant mới không được chọn mặc định
+                                isSelected: isEditing ? false : true,
                             });
                             existingCombinations.add(comboString);
                         }
@@ -184,7 +200,6 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                 }
             });
 
-            // Loại bỏ biến thể không còn khớp với tổ hợp
             let updatedVariants = newVariants.filter((variant) => {
                 const variantComboString = JSON.stringify(variant.combination);
                 return generatedCombinations.some(
@@ -192,7 +207,6 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                 );
             });
 
-            // Nếu đang edit, set isSelected dựa trên việc có dữ liệu hay không
             if (isEditing) {
                 updatedVariants = updatedVariants.map((variant) => {
                     const hasData = variant.price > 0 || variant.stock > 0 || variant.sku !== '' || variant.altText !== '' || variant.image !== null;
@@ -202,12 +216,22 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
 
             return updatedVariants;
         });
-    }, [attributes, isEditing]); // Loại bỏ defaultValues khỏi dependencies
+    }, [attributes, isEditing]);
 
-    const addAttribute = () =>
-        setAttributes((prev) => [...prev, { id: Date.now(), name: '', typesValue: 'ALL', values: [] }]);
+    const addAttribute = () => {
+        setIsConfirmDialogOpen(true);
+    };
 
-    const updateAttributeName = (id: number, name: string) =>
+    const handleConfirmDialog = (useSuggestion: boolean) => {
+        if (useSuggestion) {
+            setIsModalOpen(true);
+        } else {
+            setAttributes((prev) => [...prev, { id: Date.now(), name: '', typesValue: 'ALL', values: [] }]);
+        }
+        setIsConfirmDialogOpen(false);
+    };
+
+    const updateAttributeName = (id: number, name: string) => {
         setAttributes((prev) =>
             prev.map((attr) =>
                 attr.id === id
@@ -219,6 +243,7 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                     : attr
             )
         );
+    };
 
     const updateAttributeTypesValue = (id: number, typesValue: TypesValue) => {
         setAttributes((prev) =>
@@ -226,7 +251,7 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
         );
     };
 
-    const addAttributeValue = (attributeId: number) =>
+    const addAttributeValue = (attributeId: number) => {
         setAttributes((prev) =>
             prev.map((attr) =>
                 attr.id === attributeId
@@ -237,6 +262,7 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                     : attr
             )
         );
+    };
 
     const updateAttributeValue = (attributeId: number, valueIndex: number, value: string) => {
         setAttributes((prev) =>
@@ -292,7 +318,7 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
         variantId: number,
         field: 'price' | 'stock' | 'sku' | 'altText' | 'isActive' | 'isSelected',
         value: number | string | boolean
-    ) =>
+    ) => {
         setProductVariants((prev) =>
             prev.map((variant) => {
                 if (variant.id === variantId) {
@@ -307,10 +333,9 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                 return variant;
             })
         );
+    };
 
-    const handleVariantImageUpload = (variantId: number, event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    const handleVariantImageUpload = (variantId: number, file: File) => {
         setProductVariants((prev) =>
             prev.map((variant) =>
                 variant.id === variantId ? { ...variant, image: { file, url: URL.createObjectURL(file) } } : variant
@@ -337,6 +362,44 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
         );
     };
 
+    const handleApplySuggestions = (selectedData: {
+        selections: {
+            [key: string]: { attribute: { name: string; typesValue: 'STRING' | 'NUMBER' | 'ALL' }; values: string[] };
+        };
+    }) => {
+        const newAttributes: Attribute[] = Object.values(selectedData.selections).map((selection) => ({
+            id: Date.now() + Math.random(),
+            name: selection.attribute.name,
+            typesValue: selection.attribute.typesValue || 'STRING',
+            values: selection.values.map((val: string) => ({
+                attributeName: selection.attribute.name,
+                value: val,
+            })),
+        }));
+        setAttributes((prev) => [...prev, ...newAttributes]);
+        setIsModalOpen(false);
+    };
+
+    // Gợi ý cho Tên phân loại
+    const getAttributeNameSuggestions = () => {
+        const usedNames = new Set(attributes.map((attr) => attr.name));
+        return suggestions
+            .filter((suggestion) => !usedNames.has(suggestion.name))
+            .map((suggestion) => ({ value: suggestion.name }));
+    };
+
+    // Gợi ý cho Tùy chọn
+    const getAttributeValueSuggestions = (attributeName: string) => {
+        const attribute = attributes.find((attr) => attr.name === attributeName);
+        const usedValues = new Set(attribute?.values.map((val) => val.value) || []);
+        const suggestion = suggestions.find((s) => s.name === attributeName);
+        return suggestion
+            ? suggestion.values
+                .filter((value) => !usedValues.has(value))
+                .map((value) => ({ value }))
+            : [];
+    };
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
             <div className="flex items-center justify-between mb-6">
@@ -351,14 +414,36 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                         <p className="text-sm text-gray-500">Tạo các biến thể cho sản phẩm</p>
                     </div>
                 </div>
-                <button
-                    onClick={addAttribute}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-600 hover:to-purple-700 flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-200"
-                >
-                    <Plus size={16} />
-                    Thêm nhóm phân loại
-                </button>
+                <div className="flex gap-3">
+                    <Button
+                        type="primary"
+                        onClick={addAttribute}
+                        className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 shadow-md hover:shadow-lg"
+                        icon={<Plus size={16} />}
+                    >
+                        Thêm nhóm phân loại
+                    </Button>
+                </div>
             </div>
+
+            <Modal
+                title="Thêm nhóm phân loại"
+                open={isConfirmDialogOpen}
+                onCancel={() => setIsConfirmDialogOpen(false)}
+                footer={[
+                    <Button key="cancel" onClick={() => setIsConfirmDialogOpen(false)}>
+                        Hủy
+                    </Button>,
+                    <Button key="manual" type="primary" onClick={() => handleConfirmDialog(false)}>
+                        Thêm thủ công
+                    </Button>,
+                    <Button key="suggest" type="primary" onClick={() => handleConfirmDialog(true)}>
+                        Sử dụng gợi ý
+                    </Button>,
+                ]}
+            >
+                <p>Bạn muốn sử dụng gợi ý thuộc tính hay thêm thủ công?</p>
+            </Modal>
 
             {attributes.length === 0 && (
                 <div className="mb-6 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
@@ -379,14 +464,14 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                 Giá bán <span className="text-red-500">*</span>
                             </label>
                             <div className="flex items-center">
-                                <input
+                                <Input
                                     type="number"
                                     value={defaultValues.price}
                                     onChange={(e) => updateDefaultValues('price', parseFloat(e.target.value) || 0)}
-                                    className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                    className="flex-1"
                                     placeholder="Nhập giá bán"
-                                    min="0"
-                                    step="1000"
+                                    min={0}
+                                    step={1000}
                                 />
                                 <span className="ml-3 text-sm text-gray-500 font-medium">₫</span>
                             </div>
@@ -395,13 +480,13 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Kho hàng <span className="text-red-500">*</span>
                             </label>
-                            <input
+                            <Input
                                 type="number"
                                 value={defaultValues.stock}
                                 onChange={(e) => updateDefaultValues('stock', parseInt(e.target.value) || 0)}
-                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                className="w-full"
                                 placeholder="Nhập số lượng"
-                                min="0"
+                                min={0}
                             />
                         </div>
                     </div>
@@ -432,12 +517,12 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                 <div className="flex-1 space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">Tên phân loại</label>
-                                        <input
-                                            type="text"
-                                            placeholder="VD: Màu sắc, Kích thước..."
+                                        <AutoComplete
+                                            options={getAttributeNameSuggestions()}
                                             value={attribute.name}
-                                            onChange={(e) => updateAttributeName(attribute.id, e.target.value)}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                                            onChange={(value) => updateAttributeName(attribute.id, value)}
+                                            placeholder="VD: Màu sắc, Kích thước..."
+                                            className="w-full"
                                             maxLength={14}
                                         />
                                         <div className="flex justify-between items-center mt-1">
@@ -449,24 +534,24 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">Kiểu dữ liệu</label>
-                                        <select
+                                        <Select
                                             value={attribute.typesValue}
-                                            onChange={(e) => updateAttributeTypesValue(attribute.id, e.target.value as TypesValue)}
-                                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                                            onChange={(value) => updateAttributeTypesValue(attribute.id, value)}
+                                            className="w-full"
                                         >
                                             {TypesValueOptions.map((option) => (
-                                                <option key={option} value={option}>{option}</option>
+                                                <Select.Option key={option} value={option}>{option}</Select.Option>
                                             ))}
-                                        </select>
+                                        </Select>
                                     </div>
                                 </div>
                             </div>
-                            <button
+                            <Button
+                                danger
+                                icon={<X size={20} />}
                                 onClick={() => removeAttribute(attribute.id)}
-                                className="w-10 h-10 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl flex items-center justify-center transition-all duration-200"
-                            >
-                                <X size={20} />
-                            </button>
+                                className="w-10 h-10 flex items-center justify-center"
+                            />
                         </div>
                         <div className="space-y-3">
                             <label className="block text-sm font-medium text-gray-700">Tùy chọn</label>
@@ -477,20 +562,21 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                             <div className="w-6 h-6 bg-gradient-to-r from-indigo-400 to-purple-400 rounded-lg flex items-center justify-center flex-shrink-0">
                                                 <span className="text-white text-xs font-medium">{valueIndex + 1}</span>
                                             </div>
-                                            <input
-                                                type="text"
-                                                placeholder={`Tùy chọn ${valueIndex + 1}`}
+                                            <AutoComplete
+                                                options={getAttributeValueSuggestions(attribute.name)}
                                                 value={value.value}
-                                                onChange={(e) => updateAttributeValue(attribute.id, valueIndex, e.target.value)}
-                                                className={`flex-1 px-3 py-2 border ${valueErrors[`${attribute.id}-${valueIndex}`] ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200`}
+                                                onChange={(val) => updateAttributeValue(attribute.id, valueIndex, val)}
+                                                placeholder={`Tùy chọn ${valueIndex + 1}`}
+                                                className="flex-1"
                                                 maxLength={20}
+                                                status={valueErrors[`${attribute.id}-${valueIndex}`] ? 'error' : undefined}
                                             />
-                                            <button
+                                            <Button
+                                                danger
+                                                icon={<X size={14} />}
                                                 onClick={() => removeAttributeValue(attribute.id, valueIndex)}
-                                                className="w-8 h-8 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex items-center justify-center transition-all duration-200 opacity-0 group-hover:opacity-100"
-                                            >
-                                                <X size={14} />
-                                            </button>
+                                                className="w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100"
+                                            />
                                         </div>
                                         {valueErrors[`${attribute.id}-${valueIndex}`] && (
                                             <p className="text-xs text-red-500 mt-1">{valueErrors[`${attribute.id}-${valueIndex}`]}</p>
@@ -498,13 +584,14 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                     </div>
                                 ))}
                                 {attribute.values.length < 20 && (
-                                    <button
+                                    <Button
+                                        type="dashed"
                                         onClick={() => addAttributeValue(attribute.id)}
-                                        className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all duration-200"
+                                        className="flex items-center justify-center gap-2 px-4 py-3"
                                     >
                                         <Plus size={16} />
                                         Thêm tùy chọn
-                                    </button>
+                                    </Button>
                                 )}
                             </div>
                         </div>
@@ -534,11 +621,11 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                     <div className="flex items-center gap-2">
                                         Chọn
                                         <span className="relative group">
-                                            <Info size={16} className="text-gray-400" />
-                                            <span className="absolute hidden group-hover:block w-64 -top-2 left-6 bg-gray-800 text-white text-xs rounded-lg p-2">
-                                                Tích chọn để lưu biến thể này. Các biến thể không được chọn sẽ không được lưu vào hệ thống.
+                                                <Info size={16} className="text-gray-400" />
+                                                <span className="absolute hidden group-hover:block w-64 -top-2 left-6 bg-gray-800 text-white text-xs rounded-lg p-2">
+                                                    Tích chọn để lưu biến thể này. Các biến thể không được chọn sẽ không được lưu vào hệ thống.
+                                                </span>
                                             </span>
-                                        </span>
                                     </div>
                                 </th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 border-r border-gray-200">Phân loại</th>
@@ -549,11 +636,11 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                     <div className="flex items-center gap-2">
                                         Trạng thái
                                         <span className="relative group">
-                                            <Info size={16} className="text-gray-400" />
-                                            <span className="absolute hidden group-hover:block w-48 -top-2 left-6 bg-gray-800 text-white text-xs rounded-lg p-2">
-                                                Bật để hiển thị biến thể trên cửa hàng. Tắt để ẩn biến thể nhưng vẫn lưu trong hệ thống.
+                                                <Info size={16} className="text-gray-400" />
+                                                <span className="absolute hidden group-hover:block w-48 -top-2 left-6 bg-gray-800 text-white text-xs rounded-lg p-2">
+                                                    Bật để hiển thị biến thể trên cửa hàng. Tắt để ẩn biến thể nhưng vẫn lưu trong hệ thống.
+                                                </span>
                                             </span>
-                                        </span>
                                     </div>
                                 </th>
                             </tr>
@@ -564,39 +651,33 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                 <td className="px-4 py-4 border-r border-gray-200">
                                     <div className="flex items-center gap-2">
                                         <div className="flex items-center">
-                                            <input
+                                            <Input
                                                 type="number"
                                                 value={batchPrice}
                                                 onChange={(e) => setBatchPrice(parseFloat(e.target.value) || 0)}
-                                                className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                                                min="0"
-                                                step="1000"
+                                                className="w-24"
+                                                min={0}
+                                                step={1000}
                                             />
                                             <span className="ml-2 text-sm text-gray-500">₫</span>
                                         </div>
-                                        <button
-                                            onClick={applyBatchPrice}
-                                            className="bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition-all duration-200"
-                                        >
+                                        <Button type="primary" onClick={applyBatchPrice}>
                                             Áp dụng
-                                        </button>
+                                        </Button>
                                     </div>
                                 </td>
                                 <td className="px-4 py-4 border-r border-gray-200">
                                     <div className="flex items-center gap-2">
-                                        <input
+                                        <Input
                                             type="number"
                                             value={batchStock}
                                             onChange={(e) => setBatchStock(parseInt(e.target.value) || 0)}
-                                            className="w-20 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                                            min="0"
+                                            className="w-20"
+                                            min={0}
                                         />
-                                        <button
-                                            onClick={applyBatchStock}
-                                            className="bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition-all duration-200"
-                                        >
+                                        <Button type="primary" onClick={applyBatchStock}>
                                             Áp dụng
-                                        </button>
+                                        </Button>
                                     </div>
                                 </td>
                                 <td className="px-4 py-4"></td>
@@ -606,48 +687,50 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                             {productVariants.map((variant) => (
                                 <tr key={variant.id} className="border-t border-gray-200 hover:bg-gray-50 transition-colors">
                                     <td className="px-4 py-4 border-r border-gray-200">
-                                        <input
-                                            type="checkbox"
+                                        <Checkbox
                                             checked={variant.isSelected}
                                             onChange={(e) => updateVariant(variant.id, 'isSelected', e.target.checked)}
-                                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                                         />
                                     </td>
                                     <td className="px-4 py-4 border-r border-gray-200">
                                         <div className="flex flex-col gap-1">
                                             {variant.combination.map((combo, index) => (
                                                 <span key={`${variant.id}-${index}`} className="text-sm text-gray-600">
-                                                    {combo.attributeName}: {combo.value}
-                                                </span>
+                                                        {combo.attributeName}: {combo.value}
+                                                    </span>
                                             ))}
                                         </div>
                                     </td>
                                     <td className="px-4 py-4 border-r border-gray-200">
-                                        <label className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center relative overflow-hidden cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all duration-200">
-                                            {variant.image ? (
-                                                <img src={variant.image.url} alt="Variant" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <Upload size={20} className="text-gray-400" />
-                                            )}
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                className="absolute inset-0 opacity-0 cursor-pointer"
-                                                onChange={(e) => handleVariantImageUpload(variant.id, e)}
-                                            />
-                                        </label>
+                                        <AntdUpload
+                                            accept="image/*"
+                                            showUploadList={false}
+                                            beforeUpload={(file) => {
+                                                handleVariantImageUpload(variant.id, file);
+                                                return false;
+                                            }}
+                                        >
+                                            <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center relative overflow-hidden cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all duration-200">
+                                                {variant.image ? (
+                                                    <img src={variant.image.url} alt="Variant" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <Upload size={20} className="text-gray-400" />
+                                                )}
+                                            </div>
+                                        </AntdUpload>
                                     </td>
                                     <td className="px-4 py-4 border-r border-gray-200">
                                         <div className="flex flex-col gap-1">
                                             <div className="flex items-center">
-                                                <input
+                                                <Input
                                                     type="number"
                                                     value={variant.price}
                                                     onChange={(e) => updateVariant(variant.id, 'price', parseFloat(e.target.value) || 0)}
-                                                    className={`w-24 px-3 py-2 border ${variantErrors[variant.id]?.price ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200`}
-                                                    min="0"
-                                                    step="1000"
+                                                    className="w-24"
+                                                    min={0}
+                                                    step={1000}
                                                     disabled={!variant.isSelected}
+                                                    status={variantErrors[variant.id]?.price ? 'error' : undefined}
                                                 />
                                                 <span className="ml-2 text-sm text-gray-500">₫</span>
                                             </div>
@@ -658,13 +741,14 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                     </td>
                                     <td className="px-4 py-4 border-r border-gray-200">
                                         <div className="flex flex-col gap-1">
-                                            <input
+                                            <Input
                                                 type="number"
                                                 value={variant.stock}
                                                 onChange={(e) => updateVariant(variant.id, 'stock', parseInt(e.target.value) || 0)}
-                                                className={`w-20 px-3 py-2 border ${variantErrors[variant.id]?.stock ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200`}
-                                                min="0"
+                                                className="w-20"
+                                                min={0}
                                                 disabled={!variant.isSelected}
+                                                status={variantErrors[variant.id]?.stock ? 'error' : undefined}
                                             />
                                             {variantErrors[variant.id]?.stock && (
                                                 <p className="text-xs text-red-500">{variantErrors[variant.id].stock}</p>
@@ -672,11 +756,9 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                                         </div>
                                     </td>
                                     <td className="px-4 py-4">
-                                        <input
-                                            type="checkbox"
+                                        <Checkbox
                                             checked={variant.isActive}
                                             onChange={(e) => updateVariant(variant.id, 'isActive', e.target.checked)}
-                                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                                             disabled={!variant.isSelected}
                                         />
                                     </td>
@@ -687,6 +769,15 @@ const AttributesSection: React.FC<AttributesSectionProps> = ({
                     </div>
                 </div>
             )}
+
+            <AttributeSuggestionModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onApply={handleApplySuggestions}
+                productName={productName}
+                itemTypeId={selectedItemType?.id || 1}
+                suggestions={suggestions}
+            />
         </div>
     );
 };

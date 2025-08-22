@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronRight } from 'lucide-react';
 import { getItemTypes } from '@/services/productService';
+import { fetchSuggestions } from '@/services/suggestionService';
+import { SuggestionRequest, SuggestionResponse} from '@/types/api';
 
 interface ItemTypeDTO {
     id: number;
@@ -19,12 +21,13 @@ interface ItemType {
     parent_id: number | null;
     children?: ItemType[];
 }
-
 interface BasicInfoProps {
     productName: string;
     setProductName: React.Dispatch<React.SetStateAction<string>>;
     selectedItemType: ItemType | null;
     setSelectedItemType: React.Dispatch<React.SetStateAction<ItemType | null>>;
+    suggestions?: SuggestionResponse['attributes'] | null; // Nhận attributes thay vì ApiResponse
+    setSuggestions: React.Dispatch<React.SetStateAction<SuggestionResponse['attributes']>>; // Truyền attributes
 }
 
 const BasicInfo: React.FC<BasicInfoProps> = ({
@@ -32,6 +35,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                                                  setProductName,
                                                  selectedItemType,
                                                  setSelectedItemType,
+                                                 setSuggestions,
                                              }) => {
     const [showItemTypeModal, setShowItemTypeModal] = useState(false);
     const [expandedItemTypes, setExpandedItemTypes] = useState<Record<number, boolean>>({});
@@ -63,7 +67,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
     const selectItemType = (itemType: ItemType) => {
         const buildPath = (item: ItemType, allItems: ItemType[], path: ItemType[] = []): ItemType[] => {
             if (item.parent_id) {
-                const parent = allItems.find((i) => i.id === item.parent_id);
+                const parent = allItems.find((i) => i.id === item.parent_id) || itemTypes.find((i) => i.id === item.parent_id);
                 if (parent) return buildPath(parent, allItems, [parent, ...path]);
             }
             return path;
@@ -71,14 +75,47 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
 
         const path = [...buildPath(itemType, itemTypes), itemType];
         setSelectedPath(path);
-        setSelectedItemType(itemType);
     };
 
-    const confirmItemTypeSelection = () => setShowItemTypeModal(false);
+    const confirmItemTypeSelection = async () => {
+        if (!selectedPath.length) {
+            alert('Vui lòng chọn một ngành hàng trước khi xác nhận.');
+            return;
+        }
+
+        const itemType = selectedPath[selectedPath.length - 1];
+        setSelectedItemType(itemType);
+        setShowItemTypeModal(false);
+
+        if (productName.trim() && setSuggestions) {
+            try {
+                const request: SuggestionRequest = {
+                    item_type_id: itemType.id,
+                    product_name: productName,
+                };
+                const response: SuggestionResponse = await fetchSuggestions(request);
+
+                if (!response.success) {
+                    throw new Error(response.metadata.message || 'Không thể tải gợi ý thuộc tính.');
+                }
+
+                setSuggestions(response.attributes); // Truyền attributes sang ProductForm
+            } catch (error) {
+                console.error('Failed to fetch suggestions:', error);
+                alert(error instanceof Error ? error.message : 'Không thể tải gợi ý thuộc tính. Vui lòng thử lại.');
+                setSuggestions([]); // Reset suggestions nếu lỗi
+            }
+        } else {
+            alert('Vui lòng nhập tên sản phẩm trước khi tải gợi ý.');
+            setSuggestions([]); // Reset suggestions nếu không có productName
+        }
+    };
+
     const cancelItemTypeSelection = () => {
         setShowItemTypeModal(false);
         setSelectedPath([]);
         setSelectedItemType(null);
+        setSuggestions([]); // Reset suggestions khi hủy
     };
 
     const renderItemTypeTree = (items: ItemType[], level = 0) =>
@@ -86,7 +123,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
             <div key={item.id} className={`${level > 0 ? 'ml-6' : ''}`}>
                 <div
                     className={`flex items-center py-2 px-3 rounded-lg hover:bg-white transition-colors ${
-                        selectedItemType?.id === item.id ? 'bg-blue-100 border border-blue-300' : 'hover:shadow-sm'
+                        selectedPath.some((p) => p.id === item.id) ? 'bg-blue-100 border border-blue-300' : 'hover:shadow-sm'
                     }`}
                 >
                     {item.children && item.children.length > 0 ? (
@@ -108,7 +145,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                     <button
                         onClick={() => selectItemType(item)}
                         className={`flex-1 text-left py-2 px-3 rounded-md cursor-pointer transition-colors ${
-                            selectedItemType?.id === item.id
+                            selectedPath.some((p) => p.id === item.id)
                                 ? 'bg-blue-500 text-white shadow-md'
                                 : 'hover:bg-blue-50 hover:text-blue-700'
                         }`}
@@ -124,7 +161,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                             {item.children && item.children.length > 0 && (
                                 <span
                                     className={`text-xs px-2 py-1 rounded-full ${
-                                        selectedItemType?.id === item.id
+                                        selectedPath.some((p) => p.id === item.id)
                                             ? 'bg-blue-400 text-white'
                                             : 'bg-gray-200 text-gray-600'
                                     }`}
@@ -142,6 +179,15 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                 )}
             </div>
         ));
+
+    // Kiểm tra productName trước khi mở modal
+    const handleOpenItemTypeModal = () => {
+        if (!productName.trim()) {
+            alert('Vui lòng nhập tên sản phẩm trước khi chọn ngành hàng.');
+            return;
+        }
+        setShowItemTypeModal(true);
+    };
 
     return (
         <>
@@ -194,7 +240,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                 </div>
                 <div
                     className="relative border border-gray-200 rounded-xl p-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 group"
-                    onClick={() => setShowItemTypeModal(true)}
+                    onClick={handleOpenItemTypeModal}
                 >
                     {selectedItemType ? (
                         <div className="flex items-center justify-between">
@@ -216,7 +262,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                                                 return path;
                                             };
                                             const fullPath = [...buildPath(selectedItemType, itemTypes), selectedItemType];
-                                            return fullPath.map(item => item.name).join(' > ');
+                                            return fullPath.map((item) => item.name).join(' > ');
                                         })()}
                                     </span>
                                 </div>
@@ -360,7 +406,7 @@ const BasicInfo: React.FC<BasicInfoProps> = ({
                                 <button
                                     onClick={confirmItemTypeSelection}
                                     className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                                    disabled={!selectedItemType}
+                                    disabled={!selectedPath.length}
                                 >
                                     Xác nhận chọn
                                 </button>

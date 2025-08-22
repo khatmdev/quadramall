@@ -258,4 +258,45 @@ public class ProductServiceReq {
         }
         return productMapper.toProductCreateDto(product);
     }
+
+    /**
+     * Lấy Store ID của sản phẩm
+     */
+    public Long getStoreIdByProductId(Long productId) {
+        Product product = productRepo.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Sản phẩm không tồn tại"));
+        return product.getStore().getId();
+    }
+
+    /**
+     * Vô hiệu hóa sản phẩm (chuyển isActive = false)
+     */
+    @Transactional
+    public void deactivateProduct(Long productId) {
+        Product product = productRepo.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Sản phẩm không tồn tại"));
+
+        if (!product.isActive()) {
+            throw new IllegalArgumentException("Sản phẩm đã được vô hiệu hóa trước đó");
+        }
+
+        product.setActive(false);
+        productRepo.save(product);
+    }
+
+    /**
+     * Kích hoạt sản phẩm (chuyển isActive = true)
+     */
+    @Transactional
+    public void activateProduct(Long productId) {
+        Product product = productRepo.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Sản phẩm không tồn tại"));
+
+        if (product.isActive()) {
+            throw new IllegalArgumentException("Sản phẩm đã được kích hoạt trước đó");
+        }
+
+        product.setActive(true);
+        productRepo.save(product);
+    }
 }
