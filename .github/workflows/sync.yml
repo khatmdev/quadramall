@@ -1,0 +1,33 @@
+name: Sync Dev to Prod
+
+on:
+  push:
+    branches:
+      - main  # Nhánh chính của dev repository
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Dev Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+
+    - name: Sync to Prod Repository
+      run: |
+        git clone https://${{ secrets.PROD_REPO_TOKEN }}@github.com/nhant794/quadramall_prod.git /tmp/prod
+        cd /tmp/prod
+        rm -rf ./*
+        cp -r /github/workspace/* .
+        git add .
+        git commit -m "Auto-sync from dev repository"
+        git push origin main
+      env:
+        GIT_AUTHOR_NAME: "GitHub Actions"
+        GIT_AUTHOR_EMAIL: "actions@github.com"
+        GIT_COMMITTER_NAME: "GitHub Actions"
+        GIT_COMMITTER_EMAIL: "actions@github.com"
