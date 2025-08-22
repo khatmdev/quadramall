@@ -1,5 +1,4 @@
 name: Sync Dev to Prod
-
 on:
   push:
     branches:
@@ -11,23 +10,55 @@ jobs:
     steps:
     - name: Checkout Dev Repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Lấy toàn bộ history
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup Git
       run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions Bot"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-    - name: Sync to Prod Repository
+    - name: Setup Git Credentials
       run: |
-        git clone https://${{ secrets.PROD_REPO_TOKEN }}@github.com/nhant794/quadramall_prod.git /tmp/prod
+        git config --global credential.helper store
+        echo "https://x-access-token:${{ secrets.PROD_REPO_TOKEN }}@github.com" > ~/.git-credentials
+
+    - name: Clone and Sync to Prod Repository
+      run: |
+        # Clone prod repository
+        git clone https://github.com/nhant794/quadramall_prod.git /tmp/prod
         cd /tmp/prod
-        rm -rf ./*
-        cp -r /github/workspace/* .
-        git add .
-        git commit -m "Auto-sync from dev repository"
-        git push origin main
+        
+        # Set remote URL with token
+        git remote set-url origin https://x-access-token:${{ secrets.PROD_REPO_TOKEN }}@github.com/nhant794/quadramall_prod.git
+        
+        # Backup .git folder
+        cp -r .git /tmp/git-backup
+        
+        # Remove all files except .git
+        find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+        
+        # Copy all files from dev repo (including hidden files)
+        cp -r $GITHUB_WORKSPACE/. .
+        
+        # Restore .git folder
+        rm -rf .git
+        mv /tmp/git-backup .git
+        
+        # Check if there are changes
+        if [[ -n $(git status --porcelain) ]]; then
+          git add .
+          git commit -m "Auto-sync from dev repository - $(date '+%Y-%m-%d %H:%M:%S')"
+          git push origin main
+          echo "✅ Successfully synced to prod repository"
+        else
+          echo "ℹ️  No changes to sync"
+        fi
       env:
-        GIT_AUTHOR_NAME: "GitHub Actions"
-        GIT_AUTHOR_EMAIL: "actions@github.com"
-        GIT_COMMITTER_NAME: "GitHub Actions"
-        GIT_COMMITTER_EMAIL: "actions@github.com"
+        GITHUB_WORKSPACE: /github/workspace
+
+    - name: Verify Sync
+      if: always()
+      run: |
+        echo "Sync job completed with status: ${{ job.status }}"
