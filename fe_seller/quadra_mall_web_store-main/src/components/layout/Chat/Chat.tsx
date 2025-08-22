@@ -13,6 +13,7 @@ import {
   ConversationDTO,
   ChatMessageDTO
 } from '@/services/chatService';
+import { uploadImage, uploadVideo } from '@/api/cloudinary/uploadService';
 
 const ChatInterface: React.FC = () => {
   // Lấy từ localStorage thay vì hardcode
@@ -22,7 +23,12 @@ const ChatInterface: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ConversationDTO | null>(null);
   const [messages, setMessages] = useState<ChatMessageDTO[]>([]);
+  const [isSending, setIsSending] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [wsConnected, setWsConnected] = useState(false);
@@ -30,6 +36,44 @@ const ChatInterface: React.FC = () => {
   const [unreadCounts, setUnreadCounts] = useState<Record<number, number>>({});
   const conversationUnsubscribers = useRef<Record<number, () => void>>({});
   const [lastMessages, setLastMessages] = useState<Record<number, ChatMessageDTO>>({});
+
+  // Helper: add or replace message while preventing duplicates
+  const addOrReplaceMessage = (incoming: ChatMessageDTO) => {
+    setMessages(prev => {
+      // if incoming has server id, prefer dedup by id
+      if (incoming.id) {
+        // if already present by id, skip
+        if (prev.some(m => m.id === incoming.id)) return prev;
+
+        // try to find optimistic message to replace (negative id)
+        const optimisticIndex = prev.findIndex(m => m.id && m.id < 0 && m.senderId === incoming.senderId && (
+          (incoming.messageText && m.messageText === incoming.messageText) ||
+          (incoming.imageUrl && m.imageUrl === incoming.imageUrl) ||
+          (incoming.videoUrl && m.videoUrl === incoming.videoUrl)
+        ));
+
+        if (optimisticIndex !== -1) {
+          const updated = [...prev];
+          updated[optimisticIndex] = incoming;
+          return updated;
+        }
+
+        return [...prev, incoming];
+      }
+
+      // incoming has no id: dedupe by content + time window
+      const isDup = prev.some(m =>
+        m.senderId === incoming.senderId &&
+        ((m.messageText && incoming.messageText && m.messageText === incoming.messageText) ||
+         (m.imageUrl && incoming.imageUrl && m.imageUrl === incoming.imageUrl) ||
+         (m.videoUrl && incoming.videoUrl && m.videoUrl === incoming.videoUrl)) &&
+        Math.abs(new Date(m.createdAt || '').getTime() - new Date(incoming.createdAt || '').getTime()) < 5000
+      );
+      if (isDup) return prev;
+
+      return [...prev, incoming];
+    });
+  };
 
   // Khởi tạo storeId và ownerId từ localStorage
   useEffect(() => {
@@ -78,34 +122,9 @@ const ChatInterface: React.FC = () => {
     setOnMessageReceived((message: ChatMessageDTO) => {
       console.log('[Chat] Received message via user queue:', message);
       
-      // Nếu là tin nhắn của conversation đang mở, thêm vào messages
+      // Nếu là tin nhắn của conversation đang mở, thêm vào messages (with dedupe)
       if (message.conversationId === selectedConversation?.id) {
-        setMessages(prev => {
-          // Tránh duplicate - kiểm tra cả ID thực và nội dung
-          const isDuplicate = prev.some(m => 
-            (m.id && message.id && m.id === message.id) ||
-            (m.senderId === message.senderId && 
-             m.messageText === message.messageText && 
-             Math.abs(new Date(m.createdAt || '').getTime() - new Date(message.createdAt || '').getTime()) < 5000)
-          );
-          
-          if (isDuplicate) return prev;
-          
-          // Nếu có tin nhắn optimistic cùng nội dung, thay thế nó
-          const optimisticIndex = prev.findIndex(m => 
-            m.id && m.id < 0 && 
-            m.senderId === message.senderId && 
-            m.messageText === message.messageText
-          );
-          
-          if (optimisticIndex !== -1) {
-            const updated = [...prev];
-            updated[optimisticIndex] = message;
-            return updated;
-          }
-          
-          return [...prev, message];
-        });
+        addOrReplaceMessage(message);
       } else if (message.conversationId) {
         // Cập nhật unread count cho conversation khác
         setUnreadCounts(prev => ({
@@ -167,32 +186,7 @@ const ChatInterface: React.FC = () => {
         
         // If this message is for the currently open conversation
         if (selectedConversation && message.conversationId === selectedConversation.id) {
-          setMessages(prev => {
-            // Tránh duplicate với logic tương tự như user queue
-            const isDuplicate = prev.some(m => 
-              (m.id && message.id && m.id === message.id) ||
-              (m.senderId === message.senderId && 
-               m.messageText === message.messageText && 
-               Math.abs(new Date(m.createdAt || '').getTime() - new Date(message.createdAt || '').getTime()) < 5000)
-            );
-            
-            if (isDuplicate) return prev;
-            
-            // Thay thế tin nhắn optimistic nếu có
-            const optimisticIndex = prev.findIndex(m => 
-              m.id && m.id < 0 && 
-              m.senderId === message.senderId && 
-              m.messageText === message.messageText
-            );
-            
-            if (optimisticIndex !== -1) {
-              const updated = [...prev];
-              updated[optimisticIndex] = message;
-              return updated;
-            }
-            
-            return [...prev, message];
-          });
+          addOrReplaceMessage(message);
         } else if (message.conversationId) {
           // Update unread count for other conversations
           setUnreadCounts(prev => ({
@@ -310,57 +304,72 @@ const ChatInterface: React.FC = () => {
 
   // Gửi tin nhắn
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !selectedConversation || !ownerId) return;
-    
+  if (isSending) return; // prevent duplicate sends
+  if (!selectedConversation || !ownerId) return;
+
     try {
+      // prepare media uploads if any
+      let imageUrl: string | undefined;
+      let videoUrl: string | undefined;
+
+      if (selectedImage) {
+        const res = await uploadImage(selectedImage);
+        if (res.status === 'success') imageUrl = res.data;
+      }
+
+      if (selectedVideo) {
+        const res = await uploadVideo(selectedVideo);
+        if (res.status === 'success') videoUrl = res.data;
+      }
+
+      const text = inputText && inputText.trim() ? inputText.trim() : '';
+
       // Xác định receiverId là customerId của conversation
       const receiverId = selectedConversation.customerId;
       const newMessage: ChatMessageDTO = {
         senderId: ownerId,
         receiverId: receiverId,
-        messageText: inputText,
-        conversationId: selectedConversation.id
+        messageText: text,
+        conversationId: selectedConversation.id,
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(videoUrl ? { videoUrl } : {}),
       };
-      
+
       console.log('Sending message:', newMessage);
-      
-      // Gửi tin nhắn qua WebSocket nếu đã kết nối
+      setIsSending(true);
+
+      // Create optimistic message (negative id) and insert via addOrReplaceMessage
+      const tempMessage: ChatMessageDTO = {
+        ...newMessage,
+        id: Date.now() * -1,
+        createdAt: new Date().toISOString()
+      };
+      addOrReplaceMessage(tempMessage);
+
+      // If websocket connected, send via WS for realtime — server will broadcast saved message
       if (wsConnected) {
-        // Gửi tin nhắn trước khi thêm optimistic update
-        sendMessageWebSocket(newMessage);
-        
-        // Optimistic update với delay nhỏ để tránh race condition
-        setTimeout(() => {
-          setMessages(prev => {
-            // Kiểm tra xem tin nhắn thực đã có chưa
-            const realMessageExists = prev.some(m => 
-              m.id && m.id > 0 && 
-              m.senderId === newMessage.senderId && 
-              m.messageText === newMessage.messageText &&
-              Math.abs(new Date(m.createdAt || '').getTime() - Date.now()) < 10000
-            );
-            
-            if (realMessageExists) return prev;
-            
-            const tempMessage: ChatMessageDTO = {
-              ...newMessage,
-              id: Date.now() * -1,
-              createdAt: new Date().toISOString()
-            };
-            
-            return [...prev, tempMessage];
-          });
-        }, 100);
+        try {
+          sendMessageWebSocket(newMessage);
+        } catch (e) {
+          console.warn('WebSocket send failed, falling back to REST', e);
+          const response = await sendMessageRest(newMessage);
+          console.log('Message sent via REST:', response.data);
+          addOrReplaceMessage(response.data);
+        }
       } else {
-        // Fallback: gửi qua REST API nếu WebSocket chưa kết nối
         const response = await sendMessageRest(newMessage);
-        console.log('Message sent successfully via REST:', response.data);
-        setMessages(prev => [...prev, response.data]);
+        console.log('Message sent via REST:', response.data);
+        addOrReplaceMessage(response.data);
       }
-      
-      setInputText('');
+
+  // reset inputs
+  setInputText('');
+  setSelectedImage(null);
+  setSelectedVideo(null);
+  setIsSending(false);
     } catch (error) {
       console.error('Error sending message:', error);
+  setIsSending(false);
     }
   };
 
@@ -369,6 +378,19 @@ const ChatInterface: React.FC = () => {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (file) setSelectedImage(file);
+    // reset input so same file can be selected again
+    if (e.target) e.target.value = '';
+  };
+
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (file) setSelectedVideo(file);
+    if (e.target) e.target.value = '';
   };
 
   // Kiểm tra thông tin cần thiết
@@ -510,8 +532,8 @@ const ChatInterface: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+  {/* Main Chat Area */}
+  <div className="flex-1 flex flex-col relative">
         {/* Chat Header */}
         <div className="bg-white border-b border-gray-200 p-4">
           <div className="flex items-center justify-between">
@@ -545,52 +567,89 @@ const ChatInterface: React.FC = () => {
           </div>
         </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+  {/* Messages Area */}
+  {/* Added extra bottom padding so last messages are not hidden behind sticky input bar */}
+  <div className="flex-1 overflow-y-auto p-4 pb-40 bg-gray-50">
           <div className="space-y-4">
             {messages.length === 0 ? (
               <div className="text-center text-gray-500 mt-8">
                 {selectedConversation ? 'Chưa có tin nhắn nào' : 'Chọn một cuộc trò chuyện để bắt đầu'}
               </div>
             ) : (
-              messages.map((message) => (
+              messages.map((message, index) => {
+                const isOwner = message.senderId === ownerId;
+                const isLastOwnerMessage = isOwner && index === messages.length - 1;
+                return (
                 <div
                   key={message.id}
                   className={`flex ${message.senderId === ownerId ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div
-                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                      message.senderId === ownerId
-                        ? 'bg-blue-500 text-white rounded-br-sm'
-                        : 'bg-white text-gray-800 rounded-bl-sm shadow-sm'
-                    }`}
-                  >
-                    <p className="text-sm">{message.messageText}</p>
-                    <p 
-                      className={`text-xs mt-1 ${
-                        message.senderId === ownerId ? 'text-blue-100' : 'text-gray-500'
+                  <div className="flex flex-col items-end">
+                    <div
+                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
+                        message.senderId === ownerId
+                          ? 'bg-blue-500 text-white rounded-br-sm'
+                          : 'bg-white text-gray-800 rounded-bl-sm shadow-sm'
                       }`}
                     >
-                      {message.createdAt ? new Date(message.createdAt).toLocaleTimeString('vi-VN', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      }) : ''}
-                    </p>
+                        {message.imageUrl && (
+                          <img src={message.imageUrl} alt="image" className="max-w-full rounded mb-2" />
+                        )}
+                        {message.videoUrl && (
+                          <video src={message.videoUrl} controls className="max-w-full rounded mb-2" />
+                        )}
+                        {message.messageText && <p className="text-sm">{message.messageText}</p>}
+                      <p 
+                        className={`text-xs mt-1 ${
+                          message.senderId === ownerId ? 'text-blue-100' : 'text-gray-500'
+                        }`}
+                      >
+                        {message.createdAt ? new Date(message.createdAt).toLocaleTimeString('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        }) : ''}
+                      </p>
+                    </div>
+                    {message.senderId === ownerId && isLastOwnerMessage && (
+                      <div className="mt-1">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-700 border border-green-200">
+                          ✓ Đã gửi
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
             <div ref={messagesEndRef} />
           </div>
         </div>
 
-        {/* Input Area */}
-        <div className="bg-white border-t border-gray-200 p-4">
+  {/* Input Area (sticky) */}
+  <div className="bg-white border-t border-gray-200 p-4 sticky bottom-0 left-0 right-0 z-10">
           <div className="flex items-center space-x-3">
-            <button className="p-2 hover:bg-gray-100 rounded-full">
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              className="p-2 hover:bg-gray-100 rounded-full"
+            >
               <Paperclip size={20} className="text-gray-600" />
             </button>
+            <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+
             <div className="flex-1 relative">
+              {/* previews */}
+              {selectedImage && (
+                <div className="mb-2">
+                  <img src={URL.createObjectURL(selectedImage)} alt="preview" className="max-h-40 rounded" />
+                </div>
+              )}
+              {selectedVideo && (
+                <div className="mb-2">
+                  <video src={URL.createObjectURL(selectedVideo)} controls className="max-h-40 rounded" />
+                </div>
+              )}
+
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -602,12 +661,21 @@ const ChatInterface: React.FC = () => {
                 style={{ minHeight: '40px', maxHeight: '120px' }}
               />
             </div>
+
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              className="p-2 hover:bg-gray-100 rounded-full"
+            >
+              <Video size={20} className="text-gray-600" />
+            </button>
+            <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleVideoChange} />
+
             <button className="p-2 hover:bg-gray-100 rounded-full">
               <Mic size={20} className="text-gray-600" />
             </button>
             <button
               onClick={handleSendMessage}
-              disabled={!selectedConversation || !inputText.trim()}
+              disabled={isSending || !selectedConversation || (!inputText.trim() && !selectedImage && !selectedVideo)}
               className="p-2 bg-blue-500 hover:bg-blue-600 rounded-full text-white transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Send size={20} />

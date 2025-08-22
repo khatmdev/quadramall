@@ -45,6 +45,10 @@ public class ChatService {
 
     @Transactional
     public ChatMessageDTO sendMessage(ChatMessageDTO chatMessageDTO) {
+        // Nếu messageText null nhưng có image/video thì gán giá trị rỗng để tránh lỗi DB
+        if (chatMessageDTO.getMessageText() == null && (chatMessageDTO.getImageUrl() != null || chatMessageDTO.getVideoUrl() != null)) {
+            chatMessageDTO.setMessageText("");
+        }
         // Tìm hoặc tạo Conversation
         Conversation conversation = null;
         if (chatMessageDTO.getConversationId() != null) {

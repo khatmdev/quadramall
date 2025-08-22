@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { ChatService } from '@/api/ChatService';
+import { uploadImage, uploadVideo } from '@/api/cloudinary/uploadService';
 import { ChatMessage, Conversation, Notification } from '@/types/chat';
 import { api } from '@/main';
 import { toast } from '@/lib/toast';
@@ -23,7 +24,7 @@ interface ExtendedConversation extends Conversation {
 }
 
 interface ExtendedChatMessage extends ChatMessage {
-  content: string; // Map from backend 'content' field
+  content: string; // Map from backend 'messageText' field
   timestamp: string; // Map from backend timestamp
   read?: boolean;
 }
@@ -38,21 +39,23 @@ const getCurrentUser = () => {
   }
 };
 
-// Helpers to persist storeName per conversation locally to survive reloads
-const STORE_NAME_MAP_KEY = 'chat_store_name_map_v1';
-const readStoreNameMap = (): Record<number, string> => {
+// Helpers to persist store info (name + logoUrl) per conversation locally to survive reloads
+// Shape: Record<conversationId, { name?: string; logoUrl?: string }>
+const STORE_NAME_MAP_KEY = 'chat_store_info_map_v1';
+type StoreInfoMap = Record<number, { name?: string; logoUrl?: string }>;
+const readStoreInfoMap = (): StoreInfoMap => {
   try {
     const raw = localStorage.getItem(STORE_NAME_MAP_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as Record<number, string>;
+    return JSON.parse(raw) as StoreInfoMap;
   } catch {
     return {};
   }
 };
-const saveStoreNameToMap = (conversationId: number, name: string) => {
+const saveStoreInfoToMap = (conversationId: number, payload: { name?: string; logoUrl?: string }) => {
   try {
-    const map = readStoreNameMap();
-    map[conversationId] = name;
+    const map = readStoreInfoMap();
+    map[conversationId] = { ...(map[conversationId] || {}), ...payload };
     localStorage.setItem(STORE_NAME_MAP_KEY, JSON.stringify(map));
   } catch {
     // ignore
@@ -66,6 +69,7 @@ const ChatInterface: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [selectedVideos, setSelectedVideos] = useState<File[]>([]);
+  const [isSending, setIsSending] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [conversations, setConversations] = useState<ExtendedConversation[]>([]);
   const [messages, setMessages] = useState<ExtendedChatMessage[]>([]);
@@ -152,29 +156,36 @@ const ChatInterface: React.FC = () => {
           try {
             const storeInfo = await chatService.getStoreInfo(conv.storeId);
             console.log('Store info for', conv.storeId, ':', storeInfo);
+            const persisted = readStoreInfoMap()[conv.id as number] || {};
             conversationsWithStore.push({
               ...conv,
-              storeName: storeInfo?.name || readStoreNameMap()[conv.id as number] || `Cửa hàng #${conv.storeId}`,
+              storeName: storeInfo?.name || persisted.name || `Cửa hàng #${conv.storeId}`,
+              // attach logoUrl if backend provides it
+              // @ts-expect-error - extended field on conversation (backend returns logoUrl)
+              logoUrl: storeInfo?.logoUrl || persisted.logoUrl,
             });
           } catch (error) {
             console.warn(`Could not fetch store info for store ${conv.storeId}:`, error);
+            const persisted = readStoreInfoMap()[conv.id as number] || {};
             conversationsWithStore.push({
               ...conv,
-              storeName: readStoreNameMap()[conv.id as number] || `Cửa hàng #${conv.storeId}`,
+              storeName: persisted.name || `Cửa hàng #${conv.storeId}`,
+              // @ts-expect-error - persisted value might contain logo
+              logoUrl: persisted.logoUrl,
             });
           }
         }
         
         console.log('Final conversations with store info:', conversationsWithStore);
         // Merge with any existing conversations in state and localStorage map to preserve storeName
-        const storedMap = readStoreNameMap();
+    const storedMap = readStoreInfoMap();
         setConversations(prev => {
           const prevMap = new Map<number, ExtendedConversation>();
           prev.forEach(p => { if (p.id != null) prevMap.set(p.id, p); });
           return conversationsWithStore.map(conv => {
             const existing = conv.id != null ? prevMap.get(conv.id) : undefined;
-            if (existing && existing.storeName) return { ...conv, storeName: existing.storeName };
-            if (conv.id != null && storedMap[conv.id]) return { ...conv, storeName: storedMap[conv.id] };
+    if (existing && existing.storeName) return { ...conv, storeName: existing.storeName };
+  if (conv.id != null && storedMap[conv.id]) return { ...conv, storeName: storedMap[conv.id].name, logoUrl: storedMap[conv.id].logoUrl };
             return conv;
           });
         });
@@ -310,9 +321,10 @@ const ChatInterface: React.FC = () => {
         setConversations(prev => {
           if (prev.some(c => c.id === conv.id)) return prev;
           const storeName = searchParams.get('storeName') || `Cửa hàng #${storeId}`;
-          // persist locally
-          saveStoreNameToMap(conv.id, storeName);
-          return [...prev, { ...conv, storeName }];
+          const logoUrlParam = searchParams.get('logoUrl') || undefined;
+          // persist locally (name + optional logo)
+          saveStoreInfoToMap(conv.id, { name: storeName, logoUrl: logoUrlParam });
+          return [...prev, { ...conv, storeName, logoUrl: logoUrlParam }];
         });
 
         // Select and load messages
@@ -328,58 +340,62 @@ const ChatInterface: React.FC = () => {
   }, [searchParams, customerId, chatService, handleConversationSelect]);
 
   const handleSendMessage = async () => {
-    if (!selectedConversation || (!newMessage.trim() && selectedImages.length === 0 && selectedVideos.length === 0)) {
-      return;
-    }
+    if (isSending) return;
+    if (!selectedConversation || (!newMessage.trim() && selectedImages.length === 0 && selectedVideos.length === 0)) return;
 
     try {
       const conversation = conversations.find(conv => conv.id === selectedConversation);
-      if (!conversation) {
-        console.error('Selected conversation not found');
-        return;
+      if (!conversation) return;
+      setIsSending(true);
+
+      // Upload first image & first video (extension: could loop all & send multiple messages)
+      let imageUrl: string | undefined;
+      let videoUrl: string | undefined;
+
+      if (selectedImages[0]) {
+        try {
+          const res = await uploadImage(selectedImages[0]);
+          if (res.status === 'success' && res.data) imageUrl = res.data;
+        } catch (e) {
+          console.warn('Upload image failed', e);
+          toast.error('Upload ảnh thất bại');
+        }
       }
 
-      // Build REST payload (id & createdAt will be set by backend)
-      const payload = {
+      if (selectedVideos[0]) {
+        try {
+          const res = await uploadVideo(selectedVideos[0]);
+          if (res.status === 'success' && res.data) videoUrl = res.data;
+        } catch (e) {
+          console.warn('Upload video failed', e);
+          toast.error('Upload video thất bại');
+        }
+      }
+
+      const payload: Omit<ChatMessage, 'id' | 'createdAt' | 'isRead'> = {
         conversationId: selectedConversation,
-        senderId: customerId,
+        senderId: customerId!,
         receiverId: conversation.storeId,
-        messageText: newMessage,
-        imageUrl: selectedImages.length > 0 ? URL.createObjectURL(selectedImages[0]) : undefined,
-        videoUrl: selectedVideos.length > 0 ? URL.createObjectURL(selectedVideos[0]) : undefined,
-        // Explicitly do not send isRead - let backend handle it
-      } as Omit<ChatMessage, 'id' | 'createdAt' | 'isRead'>;
+        messageText: newMessage.trim(),
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(videoUrl ? { videoUrl } : {}),
+      };
 
-      console.log('Sending payload:', payload);
-
-      // Persist to backend first
       const saved = await chatService.sendMessageRest(payload);
+      chatService.sendMessage(saved); // fire ws broadcast if connected
 
-      // Optionally, notify via WS if connected (fire-and-forget)
-      chatService.sendMessage(saved);
-
-      // Update UI with saved message
       const extendedMessage: ExtendedChatMessage = {
         ...saved,
         content: saved.messageText || '',
         timestamp: saved.createdAt || new Date().toISOString(),
       };
-  addMessageIfNotExists(extendedMessage);
+      addMessageIfNotExists(extendedMessage);
 
-      // Update last message for conversation
-      setConversations(prev =>
-        prev.map(conv =>
-          conv.id === saved.conversationId
-            ? { ...conv, lastMessage: { content: extendedMessage.content, timestamp: extendedMessage.timestamp } }
-            : conv
-        )
-      );
+      setConversations(prev => prev.map(conv => conv.id === saved.conversationId ? { ...conv, lastMessage: { content: extendedMessage.content, timestamp: extendedMessage.timestamp } } : conv));
 
-      // Clear input & selections
       setNewMessage('');
       setSelectedImages([]);
       setSelectedVideos([]);
-
       toast.success('Đã gửi tin nhắn');
     } catch (error: unknown) {
       console.error('Error sending message:', error);
@@ -389,6 +405,8 @@ const ChatInterface: React.FC = () => {
         backendMsg = axiosErr.response?.data?.message || axiosErr.response?.data?.error || axiosErr.message || backendMsg;
       }
       toast.error(backendMsg);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -429,6 +447,24 @@ const ChatInterface: React.FC = () => {
     // For now, use static logo
     // TODO: Get actual store logo when store API is available
     return '/assets/images/default_store_avatar.jpg';
+  };
+
+  const getStoreLogoFromConv = (convId?: number, fallback?: string) => {
+    // 1. check conversation in state
+    if (convId != null) {
+      const conv = conversations.find(c => c.id === convId);
+      // conv may have logoUrl field from persisted map or backend
+      if (conv) {
+        const maybe = conv as unknown as { logoUrl?: string };
+        if (maybe.logoUrl) return maybe.logoUrl;
+      }
+      const stored = readStoreInfoMap()[convId];
+      if (stored && stored.logoUrl) return stored.logoUrl;
+    }
+    // 2. fallback param
+    if (fallback) return fallback;
+    // 3. default static
+    return getStoreLogo();
   };
 
   // Kiểm tra đăng nhập sau khi gọi hooks
@@ -522,7 +558,7 @@ const ChatInterface: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <div className="flex items-center">
                     <img
-                      src={getStoreLogo()}
+                      src={getStoreLogoFromConv(conv.id)}
                       alt={`Store Logo`}
                       className="w-10 h-10 rounded-full mr-2"
                     />
@@ -556,7 +592,7 @@ const ChatInterface: React.FC = () => {
             {/* Header với logo và tên cửa hàng */}
             <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center">
               <img
-                src={getStoreLogo()}
+                src={getStoreLogoFromConv(selectedConversation)}
                 alt="Store Logo"
                 className="w-10 h-10 rounded-full mr-2"
               />
@@ -566,9 +602,15 @@ const ChatInterface: React.FC = () => {
             </div>
             {/* Khu vực hiển thị tin nhắn */}
             <div className="flex-1 p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-              {messages.map((msg) => {
+              {(() => {
+                const lastUserMessageIndex = [...messages].map((m, i) => ({ m, i }))
+                  .filter(item => item.m.senderId === customerId)
+                  .map(item => item.i)
+                  .pop();
+                return messages.map((msg, index) => {
                 const isUser = msg.senderId === customerId;
                 const avatarUrl = getAvatarUrl(msg.senderId);
+                const isRead = msg.isRead || false;
                 return (
                   <div
                     key={msg.id}
@@ -581,18 +623,39 @@ const ChatInterface: React.FC = () => {
                         className="w-8 h-8 rounded-full mr-2"
                       />
                     )}
-                    <div
-                      className={`max-w-xs p-3 rounded-lg ${
-                        isUser ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'
-                      }`}
-                    >
-                      <p>{msg.content}</p>
-                      <span className="text-xs text-gray-400">
-                        {new Date(msg.timestamp).toLocaleTimeString('vi-VN', {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
+                    <div className="flex flex-col items-end">
+                      <div
+                        className={`max-w-xs p-3 rounded-lg space-y-2 ${
+                          isUser ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'
+                        }`}
+                      >
+                        {msg.imageUrl && (
+                          <img
+                            src={msg.imageUrl}
+                            alt="image"
+                            className="rounded max-h-60 object-contain"
+                            loading="lazy"
+                          />
+                        )}
+                        {msg.videoUrl && (
+                          <video
+                            src={msg.videoUrl}
+                            controls
+                            className="rounded max-h-60"
+                          />
+                        )}
+                        {msg.content && <p>{msg.content}</p>}
+                        <span className={`block text-xs ${isUser ? 'text-blue-100' : 'text-gray-500'}`}>
+                          {new Date(msg.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      {isUser && index === lastUserMessageIndex && (
+                        <div className="mt-1">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-700 border border-green-200">
+                            ✓ {isRead ? 'Đã nhận' : 'Đã gửi'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {isUser && (
                       <img
@@ -603,7 +666,8 @@ const ChatInterface: React.FC = () => {
                     )}
                   </div>
                 );
-              })}
+                });
+              })()}
             </div>
             {/* Phần nhập văn bản và nút chat - Sử dụng sticky để cố định ở dưới */}
             <div className="p-4 border-t border-gray-200 bg-gray-50 sticky bottom-0 bg-white z-10">
@@ -696,9 +760,10 @@ const ChatInterface: React.FC = () => {
                 </div>
                 <button
                   onClick={handleSendMessage}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 ml-2"
+                  disabled={isSending || (!newMessage.trim() && selectedImages.length === 0 && selectedVideos.length === 0)}
+                  className={`px-4 py-2 rounded-md ml-2 text-white ${isSending ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} disabled:cursor-not-allowed`}
                 >
-                  Gửi
+                  {isSending ? 'Đang gửi...' : 'Gửi'}
                 </button>
               </div>
             </div>

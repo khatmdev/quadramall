@@ -9,6 +9,8 @@ export interface ChatMessageDTO {
   senderId: number;
   receiverId: number;
   messageText: string; // Đã thay đổi từ 'content' thành 'messageText'
+  imageUrl?: string;
+  videoUrl?: string;
   createdAt?: string;
   conversationId?: number;
 }
