@@ -31,7 +31,7 @@ jobs:
         cd /tmp/prod
         
         # Set remote URL with token
-        git remote set-url origin https://x-access-token:${{ secrets.QUADRAMALL_DEV_TO_PROD }}@github.com/nhant794/quadramall_prod.git
+        git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/nhant794/quadramall_prod.git
         
         # Backup .git folder
         cp -r .git /tmp/git-backup
