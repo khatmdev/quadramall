@@ -13,11 +13,15 @@ const PUBLIC_ENDPOINTS = [
   '/auth/register',
 ];
 
+const base_url = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL,
+});
+
 // Hàm tạo instance Axios với store được truyền vào
 export const createApi = () => {
   const store = getStore();
   const api: AxiosInstance = axios.create({
-    baseURL: 'http://localhost:8080',
+    baseURL: `${base_url}`,
     headers: {
       'Content-Type': 'application/json',
     },
