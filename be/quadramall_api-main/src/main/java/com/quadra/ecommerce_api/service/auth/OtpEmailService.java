@@ -1,6 +1,7 @@
 package com.quadra.ecommerce_api.service.auth;
 import jakarta.mail.internet.InternetAddress;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,9 @@ public class OtpEmailService {
 
     @Autowired
     private JavaMailSender mailSender;
+
+    @Value("PUBLIC_DOMAIN")
+    private String PUBLIC_DOMAIN;
 
     public void sendOtp(String toEmail, String otp, String type) {
         String subject = switch (type) {
@@ -46,7 +50,7 @@ public class OtpEmailService {
 
     public void sendResetLink(String toEmail, String resetToken) {
         String subject = "Đặt lại mật khẩu tài khoản QuadraMall";
-        String resetUrl = "http://localhost:5173/reset-password?token=" + resetToken;
+        String resetUrl = PUBLIC_DOMAIN+"/reset-password?token=" + resetToken;
         String content = "Bạn đã yêu cầu đặt lại mật khẩu. Vui lòng nhấp vào liên kết dưới đây để đặt lại mật khẩu:\n" +
                 resetUrl + "\nLiên kết này có hiệu lực trong 5 phút.";
 

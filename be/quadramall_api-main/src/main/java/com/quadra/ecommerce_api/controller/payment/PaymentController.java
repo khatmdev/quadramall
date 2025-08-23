@@ -17,6 +17,7 @@ import com.quadra.ecommerce_api.service.payment.PaymentService;
 import com.quadra.ecommerce_api.service.payment.VNPayService;
 import com.quadra.ecommerce_api.service.wallet.WalletService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -38,6 +39,9 @@ public class PaymentController {
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final UserRepo userRepository;
+
+    @Value("PUBLIC_DOMAIN")
+    private String PUBLIC_DOMAIN;
 
     @Autowired
     public PaymentController(
@@ -80,7 +84,7 @@ public class PaymentController {
             }
             case "WALLET" -> {
                 OrderResult orderResult = paymentService.handleOrderPaymentWallet(orders, user);
-                String redirectUrl = "http://localhost:5173/order?orderIds="
+                String redirectUrl = PUBLIC_DOMAIN+"/order?orderIds="
                         + orderResult.getTxnRef()
                         + "&status=" + orderResult.getStatus();
                 yield ResponseEntity.ok(Map.of(
@@ -91,7 +95,7 @@ public class PaymentController {
             }
             default -> {
                 OrderResult orderResult = paymentService.handleOrderPaymentCOD(orders, user);
-                String redirectUrl = "http://localhost:5173/order?orderIds="
+                String redirectUrl = PUBLIC_DOMAIN+"/order?orderIds="
                         + orderResult.getTxnRef()
                         + "&status=" + orderResult.getStatus();
                 yield ResponseEntity.ok(Map.of(
@@ -137,7 +141,7 @@ public class PaymentController {
                     // Xử lý thanh toán đơn hàng
                     List<Order> orders = orderService.handlePaymentOrder(orderRequest, user);
                     OrderResult orderResult = paymentService.handleOrderPaymentWallet(orders, user);
-                    String redirectUrl = "http://localhost:5173/order?orderIds="
+                    String redirectUrl = PUBLIC_DOMAIN+"/order?orderIds="
                             + orderResult.getTxnRef()
                             + "&status=" + orderResult.getStatus();
                     // Xóa dữ liệu khỏi Redis
@@ -157,7 +161,7 @@ public class PaymentController {
         }
 
         // Nếu không có orderRequest, chuyển hướng đến trang ví
-        String redirectUrl = "http://localhost:5173/wallet?transactionId="
+        String redirectUrl = PUBLIC_DOMAIN+"/wallet?transactionId="
                 + depositResponse.getWalletTransactionDTO().getId()
                 + "&status=" + depositResponse.getWalletTransactionDTO().getStatus()
                 + "&amount=" + depositResponse.getWalletTransactionDTO().getAmount();
@@ -178,7 +182,7 @@ public class PaymentController {
                 .map(Long::parseLong)
                 .toList();
         OrderResult orderResult = orderService.handleOrderPaymentVNPay(params, orderIds);
-        String redirectUrl = "http://localhost:5173/order?orderIds=" + orderIdsStr
+        String redirectUrl = PUBLIC_DOMAIN+"/order?orderIds=" + orderIdsStr
                 + "&status=" + orderResult.getStatus();
         return ResponseEntity.status(HttpStatus.FOUND)
                 .header("Location", redirectUrl)

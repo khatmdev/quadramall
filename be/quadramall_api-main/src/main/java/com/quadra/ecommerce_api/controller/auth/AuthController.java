@@ -39,6 +39,9 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
 
+    @Value("PUBLIC_DOMAIN")
+    private String PUBLIC_DOMAIN;
+
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String webClientId;
 
@@ -116,16 +119,16 @@ public class AuthController {
         System.out.println("email: " + email);
 
         if (emailVerified != null && !emailVerified) {
-            response.sendRedirect("http://localhost:5173/auth/error?message=Email%20chưa%20được%20xác%20minh");
+            response.sendRedirect(PUBLIC_DOMAIN+"/auth/error?message=Email%20chưa%20được%20xác%20minh");
             return;
         }
 
         try {
             LoginResponse loginResponse = authService.handleOAuth2Login(email, name, "google", providerId, picture);
-            String redirectUrl = "http://localhost:5173/auth/success?token=" + loginResponse.getToken();
+            String redirectUrl = PUBLIC_DOMAIN+"/auth/success?token=" + loginResponse.getToken();
             response.sendRedirect(redirectUrl);
         } catch (Exception e) {
-            response.sendRedirect("http://localhost:5173/auth/error?message=" + e.getMessage());
+            response.sendRedirect(PUBLIC_DOMAIN+"/auth/error?message=" + e.getMessage());
         }
     }
 

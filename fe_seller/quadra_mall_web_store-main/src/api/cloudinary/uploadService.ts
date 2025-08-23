@@ -4,7 +4,7 @@ export const uploadImage = async (file: File | Blob): Promise<{ status: string; 
   const formData = new FormData();
   formData.append('file', file, 'image.jpg');
   try {
-    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/image', formData, {
+    const { data: url } = await axios.post<string>(`${import.meta.env.VITE_API_MEDIA_URL}/image`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -20,7 +20,7 @@ export const uploadVideo = async (file: File | Blob): Promise<{ status: string; 
   const formData = new FormData();
   formData.append('file', file, 'video.mp4');
   try {
-    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/video', formData, {
+    const { data: url } = await axios.post<string>(`${import.meta.env.VITE_API_MEDIA_URL}/video`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

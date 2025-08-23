@@ -29,7 +29,7 @@ const ToastNotification: React.FC<{
         <p className="text-xs text-gray-600">{noti.message}</p>
         <div className="flex space-x-2 mt-1">
           <button
-            onClick={() => {  
+            onClick={() => {
               onMarkAsRead();
               onClose();
             }}
@@ -60,14 +60,14 @@ export const useWebSocket = () => {
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ✅ FIX 1: Ensure correct URL format
-  const socketUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8080';
+  const socketUrl = import.meta.env.VITE_API_WS_URL || 'http://localhost:8080';
   const wsEndpoint = `${socketUrl}/ws`;
 
   // ✅ FIX 2: Get token from multiple sources
   const getAuthToken = useCallback(() => {
-    return token || 
-           localStorage.getItem('token') || 
-           localStorage.getItem('access_token') || 
+    return token ||
+           localStorage.getItem('token') ||
+           localStorage.getItem('access_token') ||
            localStorage.getItem('authToken');
   }, [token]);
 
@@ -112,40 +112,40 @@ export const useWebSocket = () => {
           // Create SockJS with authentication in URL params as fallback
           const sockUrl = `${wsEndpoint}?token=${encodeURIComponent(authToken)}`;
           const sock = new SockJS(sockUrl);
-          
+
           sock.onopen = () => {
             console.log('SockJS connection opened successfully');
             reconnectAttempts.current = 0;
           };
-          
+
           sock.onclose = (event) => {
             console.log('SockJS connection closed:', event);
             isConnecting.current = false;
           };
-          
+
           sock.onerror = (error) => {
             console.error('SockJS error:', error);
             isConnecting.current = false;
           };
-          
+
           return sock;
         },
-        
+
         // ✅ FIX 5: Enhanced connect headers
         connectHeaders: {
           'Authorization': `Bearer ${authToken}`,
           'X-Requested-With': 'XMLHttpRequest',
           'Content-Type': 'application/json',
         },
-        
+
         // ✅ FIX 6: Optimized connection settings
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
-        
+
         // ✅ FIX 7: Add connection timeout
         connectionTimeout: 10000,
-        
+
         debug: (str) => {
           console.log('STOMP Debug:', str);
         },
@@ -163,10 +163,10 @@ export const useWebSocket = () => {
       client.onConnect = (frame) => {
         console.log('✅ WebSocket Connected successfully for user:', user.email);
         console.log('Connection frame headers:', frame.headers);
-        
+
         reconnectAttempts.current = 0;
         isConnecting.current = false;
-        
+
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -175,7 +175,7 @@ export const useWebSocket = () => {
         try {
           // ✅ FIX 9: Enhanced subscription with error handling
           const subscription = client.subscribe(
-            `/user/${user.email}/queue/notifications`, 
+            `/user/${user.email}/queue/notifications`,
             (message) => {
               try {
                 console.log('📨 Received notification message:', message.body);
@@ -184,7 +184,7 @@ export const useWebSocket = () => {
                   ...rawNoti,
                   isRead: rawNoti.read || false,
                 };
-                
+
                 console.log('📨 Processed notification:', noti);
                 dispatch(addNotification(noti));
 
@@ -237,13 +237,13 @@ export const useWebSocket = () => {
           );
 
           console.log('✅ Subscribed to notifications successfully:', subscription.id);
-          
+
           // ✅ FIX 11: Test connection by sending a ping
           setTimeout(() => {
             if (client.connected) {
               client.publish({
                 destination: '/app/notifications/ping',
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                   userId: user.email,
                   timestamp: new Date().toISOString()
                 }),
@@ -261,12 +261,12 @@ export const useWebSocket = () => {
         console.error('❌ STOMP Error:', frame.headers.message);
         console.error('Error details:', frame.body);
         isConnecting.current = false;
-        
+
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
         }
-        
+
         reconnectAttempts.current += 1;
         if (reconnectAttempts.current >= maxReconnectAttempts) {
           console.error('❌ Reached max reconnect attempts. Stopping reconnection.');
@@ -277,7 +277,7 @@ export const useWebSocket = () => {
       client.onWebSocketError = (error) => {
         console.error('❌ WebSocket Error:', error);
         isConnecting.current = false;
-        
+
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -287,7 +287,7 @@ export const useWebSocket = () => {
       client.onDisconnect = (frame) => {
         console.log('🔌 WebSocket Disconnected:', frame);
         isConnecting.current = false;
-        
+
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -297,7 +297,7 @@ export const useWebSocket = () => {
       client.onWebSocketClose = (event) => {
         console.log('🔌 WebSocket connection closed:', event);
         isConnecting.current = false;
-        
+
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -332,12 +332,12 @@ export const useWebSocket = () => {
   useEffect(() => {
     if (isAuthenticated && user?.email && getAuthToken()) {
       console.log('🔄 Authentication state changed, attempting WebSocket connection...');
-      
+
       // Small delay to ensure proper initialization
       const timer = setTimeout(() => {
         connect();
       }, 2000); // Increased delay
-      
+
       return () => {
         clearTimeout(timer);
         disconnect();
@@ -374,7 +374,7 @@ export const useWebSocket = () => {
   }, [dispatch]);
 
   // ✅ FIX 15: Enhanced return object with connection status
-  return { 
+  return {
     sendReadReceipt,
     isConnected: clientRef.current?.connected || false,
     disconnect,
