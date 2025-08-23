@@ -17,7 +17,7 @@ const PUBLIC_ENDPOINTS = [
 export const createApi = () => {
   const store = getStore();
   const api: AxiosInstance = axios.create({
-    baseURL: 'http://localhost:8080',
+    baseURL: `${import.meta.env.VITE_API_BASE_URL}`,
     headers: {
       'Content-Type': 'application/json',
     },

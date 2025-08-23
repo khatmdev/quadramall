@@ -34,7 +34,7 @@ export interface NotificationDTO {
 }
 
 // Thay đổi base URL để trỏ trực tiếp tới backend
-const API_BASE_URL = 'http://localhost:8080/api/chat';
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL}/api/chat`;
 
 // TODO: Cài đặt package trước khi sử dụng WebSocket:
 // npm install @stomp/stompjs sockjs-client
@@ -58,7 +58,7 @@ export const connectWebSocket = (
   onErrorCallback: (error: unknown) => void
 ) => {
   stompClient = new Client({
-    webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+    webSocketFactory: () => new SockJS(`${import.meta.env.VITE_API_WS_URL}`,),
     connectHeaders: {
       Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
     },

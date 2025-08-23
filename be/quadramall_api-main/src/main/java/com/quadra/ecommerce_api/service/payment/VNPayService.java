@@ -28,6 +28,7 @@ import com.quadra.ecommerce_api.utils.payment.VNPayUtil;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,9 @@ public class VNPayService {
     private final NotificationService notificationService;
     private final OrderRepo orderRepo;
     private final RedisTemplate<String, String> redisTemplate;
+
+    @Value("BASE_URL")
+    private String BASE_URL;
 
     @Autowired
     public VNPayService(
@@ -120,7 +124,7 @@ public class VNPayService {
         params.put("vnp_Locale", "vn");
 
         String orderIdsStr = orderIds.stream().map(String::valueOf).collect(Collectors.joining("-"));
-        params.put("vnp_ReturnUrl", "http://localhost:8080/payment/return-order?orderIds=" + orderIdsStr);
+        params.put("vnp_ReturnUrl", BASE_URL+"/payment/return-order?orderIds=" + orderIdsStr);
         params.put("vnp_IpAddr", "127.0.0.1");
         params.put("vnp_CreateDate", new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()));
 
@@ -222,7 +226,7 @@ public class VNPayService {
                 "Nạp tiền vào ví " + walletTransaction.getId());
         params.put("vnp_OrderType", "wallet");
         params.put("vnp_Locale", "vn");
-        params.put("vnp_ReturnUrl", "http://localhost:8080/payment/return-wallet");
+        params.put("vnp_ReturnUrl", BASE_URL+"/payment/return-wallet");
         params.put("vnp_IpAddr", "127.0.0.1");
         params.put("vnp_CreateDate", new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()));
         Calendar cld = Calendar.getInstance();

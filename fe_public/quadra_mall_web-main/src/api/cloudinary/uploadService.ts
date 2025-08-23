@@ -2,7 +2,7 @@ export const uploadVideo = async (file: File | Blob): Promise<ApiResponse<string
   const formData = new FormData();
   formData.append('file', file, 'video.mp4');
   try {
-    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/video', formData, {
+    const { data: url } = await axios.post<string>(`${import.meta.env.VITE_API_MEDIA_URL}/video`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -42,7 +42,7 @@ export const uploadImage = async (file: File | Blob): Promise<ApiResponse<string
   formData.append('file', file, 'banner.jpg'); // Đặt tên file nếu là Blob
 
   try {
-    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/image', formData, {
+    const { data: url } = await axios.post<string>(`${import.meta.env.VITE_API_MEDIA_URL}/image`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -61,7 +61,7 @@ export const uploadImage = async (file: File | Blob): Promise<ApiResponse<string
     let message = 'Upload thất bại';
     let errorCode: string | undefined = undefined;
     let status: 'fail' | 'error' = 'error';
-    
+
 
     if (axios.isAxiosError(error) && error.response) {
       status = error.response.status >= 500 ? 'error' : 'fail';

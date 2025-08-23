@@ -57,7 +57,7 @@ export const useWebSocket = () => {
   const reconnectAttempts = useRef<number>(0);
   const maxReconnectAttempts = 5;
 
-  const socketUrl = import.meta.env.VITE_WS_URL || 'http://localhost:8080/ws';
+  const socketUrl = import.meta.env.VITE_API_WS_URL || 'http://localhost:8080/ws';
 
   useEffect(() => {
     if (!user?.email || !token) {
