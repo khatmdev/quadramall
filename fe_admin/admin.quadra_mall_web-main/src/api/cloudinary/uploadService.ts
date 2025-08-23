@@ -2,6 +2,10 @@
 import type { ApiResponse } from '@/types/api';
 import axios from 'axios';
 
+const media_url = axios.create({
+  baseURL: import.meta.env.VITE_API_MEDIA_URL,
+});
+
 export const uploadImage = async (file: File | Blob): Promise<ApiResponse<string>> => {
   // Kiểm tra token
   const token = localStorage.getItem('token');
@@ -13,7 +17,7 @@ export const uploadImage = async (file: File | Blob): Promise<ApiResponse<string
   formData.append('file', file, 'banner.jpg'); // Đặt tên file nếu là Blob
 
   try {
-    const { data: url } = await axios.post<string>('http://localhost:8080/api/media/upload/image', formData, {
+    const { data: url } = await axios.post<string>(`${media_url}/image`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Authorization': `Bearer ${token}`,

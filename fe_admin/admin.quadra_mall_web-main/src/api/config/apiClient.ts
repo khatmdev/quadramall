@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/admin',
+  baseURL: import.meta.env.VITE_API_ADMIN_URL || 'http://localhost:8080/admin',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
