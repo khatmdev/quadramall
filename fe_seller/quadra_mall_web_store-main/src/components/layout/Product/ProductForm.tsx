@@ -24,6 +24,8 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
         setProductImages,
         productVideo,
         setProductVideo,
+        thumbnailImage,
+        setThumbnailImage,
         productName,
         setProductName,
         selectedItemType,
@@ -50,7 +52,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
     const [suggestions, setSuggestions] = useState<Attribute[]>([]);
 
     const handleSubmitWithValidation = async () => {
-        if (!productImages[0]) {
+        if (!thumbnailImage) {
             alert('Vui lòng thêm ảnh bìa cho sản phẩm.');
             return;
         }
@@ -94,6 +96,8 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSave, editProductId, storeI
                             setProductImages={setProductImages}
                             productVideo={productVideo}
                             setProductVideo={setProductVideo}
+                            thumbnailImage={thumbnailImage}
+                            setThumbnailImage={setThumbnailImage}
                         />
                         <SpecificationsSection
                             specifications={specifications as SpecificationEdit[]}

@@ -9,11 +9,21 @@ interface MediaUploadProps {
     setProductImages: React.Dispatch<React.SetStateAction<ImageFile[]>>;
     productVideo: VideoFile | null;
     setProductVideo: React.Dispatch<React.SetStateAction<VideoFile | null>>;
+    thumbnailImage: ImageFile | null;
+    setThumbnailImage: React.Dispatch<React.SetStateAction<ImageFile | null>>;
 }
 
-const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImages, productVideo, setProductVideo }) => {
+const MediaUpload: React.FC<MediaUploadProps> = ({
+                                                     productImages,
+                                                     setProductImages,
+                                                     productVideo,
+                                                     setProductVideo,
+                                                     thumbnailImage,
+                                                     setThumbnailImage
+                                                 }) => {
     const [showImageModal, setShowImageModal] = useState(false);
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+    const [selectedImageType, setSelectedImageType] = useState<'thumbnail' | 'product'>('product');
     const [zoomLevel, setZoomLevel] = useState(100);
     const [, setRotation] = useState(0);
     const [videoError, setVideoError] = useState<string | null>(null);
@@ -41,13 +51,25 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
         }
     }, [showImageModal, selectedImageIndex]);
 
+    const handleThumbnailUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const newThumbnail: ImageFile = {
+            id: null,
+            file,
+            url: URL.createObjectURL(file),
+        };
+        setThumbnailImage(newThumbnail);
+    };
+
     const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (!files) return;
         const newImages = Array.from(files)
             .slice(0, 9 - productImages.length)
             .map((file) => ({
-                id: null, // Không có ID cho ảnh mới
+                id: null,
                 file,
                 url: URL.createObjectURL(file),
             }));
@@ -67,7 +89,7 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                 return;
             }
             const newVideo: VideoFile = {
-                id: null, // Không có ID cho video mới
+                id: null,
                 file,
                 url: URL.createObjectURL(file),
             };
@@ -79,6 +101,13 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
 
     const removeImage = (index: number) => {
         setProductImages((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const removeThumbnail = () => {
+        if (thumbnailImage?.url.startsWith('blob:')) {
+            URL.revokeObjectURL(thumbnailImage.url);
+        }
+        setThumbnailImage(null);
     };
 
     const removeVideo = () => {
@@ -108,17 +137,22 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
     };
 
     const handleApplyChanges = () => {
-        if (cropperRef.current && selectedImageIndex !== null && productImages[selectedImageIndex].file) {
+        if (cropperRef.current && selectedImageIndex !== null) {
             const canvas = cropperRef.current.getCroppedCanvas();
             canvas.toBlob((blob) => {
                 if (blob) {
                     const file = new File([blob], `cropped-${Date.now()}.jpg`, { type: 'image/jpeg' });
                     const url = URL.createObjectURL(file);
-                    setProductImages((prev) => {
-                        const newImages = [...prev];
-                        newImages[selectedImageIndex] = { id: null, file, url }; // id: null cho ảnh đã crop
-                        return newImages;
-                    });
+
+                    if (selectedImageType === 'thumbnail') {
+                        setThumbnailImage({ id: null, file, url });
+                    } else {
+                        setProductImages((prev) => {
+                            const newImages = [...prev];
+                            newImages[selectedImageIndex] = { id: null, file, url };
+                            return newImages;
+                        });
+                    }
                 }
                 setShowImageModal(false);
                 setZoomLevel(100);
@@ -127,13 +161,86 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
         }
     };
 
+    const openImageEditor = (index: number, type: 'thumbnail' | 'product') => {
+        setSelectedImageIndex(index);
+        setSelectedImageType(type);
+        setShowImageModal(true);
+    };
+
+    const getCurrentEditingImage = () => {
+        if (selectedImageType === 'thumbnail' && thumbnailImage) {
+            return thumbnailImage;
+        }
+        if (selectedImageType === 'product' && selectedImageIndex !== null) {
+            return productImages[selectedImageIndex];
+        }
+        return null;
+    };
+
     return (
         <>
+            {/* Thumbnail Section */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="w-8 h-8 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-semibold text-gray-900">Ảnh bìa sản phẩm</h2>
+                        <p className="text-sm text-gray-500">Ảnh đại diện chính của sản phẩm • Tỷ lệ 1:1</p>
+                    </div>
+                    <span className="ml-auto text-red-500 text-sm font-medium">Bắt buộc</span>
+                </div>
+                <div className="flex gap-2">
+                    {thumbnailImage ? (
+                        <div
+                            className="group relative w-20 h-20 rounded-xl overflow-hidden border-2 border-gray-100 hover:border-blue-300 transition-colors cursor-pointer"
+                            onClick={() => {
+                                if (thumbnailImage.file) {
+                                    openImageEditor(0, 'thumbnail');
+                                }
+                            }}
+                        >
+                            <img src={thumbnailImage.url} alt="Thumbnail" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200"></div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeThumbnail();
+                                }}
+                                className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all duration-200"
+                            >
+                                <X size={10} />
+                            </button>
+                            <div className="absolute bottom-1 left-1 bg-white bg-opacity-90 text-xs px-1 py-0.5 rounded-full text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                                Ảnh bìa
+                            </div>
+                        </div>
+                    ) : (
+                        <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 group">
+                            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-1 group-hover:bg-blue-100 transition-colors">
+                                <Upload size={14} className="text-gray-400 group-hover:text-blue-500" />
+                            </div>
+                            <span className="text-xs text-gray-500 group-hover:text-blue-600 font-medium">Thêm ảnh bìa</span>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleThumbnailUpload}
+                            />
+                        </label>
+                    )}
+                </div>
+            </div>
+
+            {/* Product Images Section */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-8 hover:shadow-md transition-shadow duration-200">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-rose-500 rounded-lg flex items-center justify-center">
                         <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
                         </svg>
                     </div>
                     <div>
@@ -149,8 +256,7 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                             className="group relative w-20 h-20 rounded-xl overflow-hidden border-2 border-gray-100 hover:border-blue-300 transition-colors cursor-pointer"
                             onClick={() => {
                                 if (image.file) {
-                                    setSelectedImageIndex(index);
-                                    setShowImageModal(true);
+                                    openImageEditor(index, 'product');
                                 }
                             }}
                         >
@@ -188,35 +294,7 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-8 hover:shadow-md transition-shadow duration-200">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-rose-500 rounded-lg flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h2 className="text-xl font-semibold text-gray-900">Ảnh bìa</h2>
-                        <p className="text-sm text-gray-500">Hình ảnh đại diện tự động lấy từ ảnh đầu tiên</p>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                    {productImages.length > 0 ? (
-                        <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-gray-100">
-                            <img src={productImages[0].url} alt="Cover Image" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-black bg-opacity-20"></div>
-                            <div className="absolute bottom-1 left-1 bg-white bg-opacity-90 text-xs px-1 py-0.5 rounded-full text-gray-700">
-                                Ảnh bìa
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center text-gray-500">
-                            Chưa có ảnh bìa
-                        </div>
-                    )}
-                </div>
-            </div>
-
+            {/* Video Section */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-8 hover:shadow-md transition-shadow duration-200">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-violet-500 rounded-lg flex items-center justify-center">
@@ -276,24 +354,29 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                 </div>
             </div>
 
-            {showImageModal && selectedImageIndex !== null && productImages[selectedImageIndex].file && (
+            {/* Image Editing Modal */}
+            {showImageModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] overflow-hidden">
                         <div className="flex justify-between items-center p-4 border-b border-gray-200">
-                            <h2 className="text-lg font-medium text-gray-800">Chỉnh sửa hình ảnh sản phẩm</h2>
+                            <h2 className="text-lg font-medium text-gray-800">
+                                Chỉnh sửa {selectedImageType === 'thumbnail' ? 'ảnh bìa' : 'hình ảnh sản phẩm'}
+                            </h2>
                             <button onClick={() => setShowImageModal(false)} className="text-gray-500 hover:text-gray-700">
                                 <X size={24} />
                             </button>
                         </div>
                         <div className="flex h-[calc(90vh-140px)]">
                             <div className="flex-1 flex items-center justify-center bg-gray-50 p-4">
-                                <img
-                                    ref={imageRef}
-                                    src={productImages[selectedImageIndex].url}
-                                    alt="Edit Image"
-                                    className="max-w-full max-h-full object-contain"
-                                    style={{ maxWidth: '600px', maxHeight: '400px' }}
-                                />
+                                {getCurrentEditingImage() && (
+                                    <img
+                                        ref={imageRef}
+                                        src={getCurrentEditingImage()!.url}
+                                        alt="Edit Image"
+                                        className="max-w-full max-h-full object-contain"
+                                        style={{ maxWidth: '600px', maxHeight: '400px' }}
+                                    />
+                                )}
                             </div>
                             <div className="w-80 border-l border-gray-200 bg-white">
                                 <div className="p-4 border-b border-gray-200">
@@ -302,11 +385,13 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                                         <span className="text-sm font-medium text-gray-700">Xem trước</span>
                                     </div>
                                     <div className="w-20 h-20 border border-gray-200 rounded-lg overflow-hidden">
-                                        <img
-                                            src={productImages[selectedImageIndex].url}
-                                            alt="Preview"
-                                            className="w-full h-full object-cover"
-                                        />
+                                        {getCurrentEditingImage() && (
+                                            <img
+                                                src={getCurrentEditingImage()!.url}
+                                                alt="Preview"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        )}
                                     </div>
                                 </div>
                                 <div className="p-4 space-y-4">
@@ -400,11 +485,15 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                                                     const file = e.target.files?.[0];
                                                     if (file) {
                                                         const url = URL.createObjectURL(file);
-                                                        setProductImages((prev) => {
-                                                            const newImages = [...prev];
-                                                            newImages[selectedImageIndex] = { id: null, file, url };
-                                                            return newImages;
-                                                        });
+                                                        if (selectedImageType === 'thumbnail') {
+                                                            setThumbnailImage({ id: null, file, url });
+                                                        } else if (selectedImageIndex !== null) {
+                                                            setProductImages((prev) => {
+                                                                const newImages = [...prev];
+                                                                newImages[selectedImageIndex] = { id: null, file, url };
+                                                                return newImages;
+                                                            });
+                                                        }
                                                         setShowImageModal(false);
                                                     }
                                                 }}
@@ -439,7 +528,7 @@ const MediaUpload: React.FC<MediaUploadProps> = ({ productImages, setProductImag
                                 <button
                                     onClick={handleApplyChanges}
                                     className="px-6 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                                    disabled={!productImages[selectedImageIndex].file}
+                                    disabled={!getCurrentEditingImage()?.file}
                                 >
                                     Lưu
                                 </button>

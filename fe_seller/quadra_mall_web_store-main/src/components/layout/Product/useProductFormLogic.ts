@@ -52,6 +52,7 @@ interface UseProductFormLogicProps {
 export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProductFormLogicProps) => {
     const [productImages, setProductImages] = useState<ImageFile[]>([]);
     const [productVideo, setProductVideo] = useState<VideoFile | null>(null);
+    const [thumbnailImage, setThumbnailImage] = useState<ImageFile | null>(null);
     const [productName, setProductName] = useState<string>('');
     const [selectedItemType, setSelectedItemType] = useState<ItemType | null>(null);
     const [description, setDescription] = useState<string>('');
@@ -128,25 +129,26 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
                         }))
                     );
 
-                    const newProductImages: ImageFile[] = [];
+                    // Set thumbnail image separately
                     if (productData.thumbnailUrl) {
-                        newProductImages.push({
+                        setThumbnailImage({
                             id: null,
                             file: null,
                             url: productData.thumbnailUrl,
                         });
                     }
+
+                    // Set product images (excluding thumbnail)
                     if (productData.images && productData.images.length > 0) {
-                        const additionalImages = productData.images
+                        const productImagesOnly = productData.images
                             .filter((img) => img.url !== productData.thumbnailUrl)
                             .map((img) => ({
                                 id: img.id,
                                 file: null,
                                 url: img.url,
                             }));
-                        newProductImages.push(...additionalImages);
+                        setProductImages(productImagesOnly);
                     }
-                    setProductImages(newProductImages);
 
                     setProductVariants(
                         productData.variants.map((variant) => ({
@@ -262,7 +264,7 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
             if (!selectedItemType) throw new Error('Vui lòng chọn ngành hàng');
             if (!description.trim()) throw new Error('Vui lòng nhập mô tả sản phẩm');
             if (productImages.length < 3) throw new Error('Vui lòng tải lên ít nhất 3 hình ảnh sản phẩm');
-            if (!productImages[0]) throw new Error('Vui lòng thêm ảnh bìa cho sản phẩm');
+            if (!thumbnailImage) throw new Error('Vui lòng thêm ảnh bìa cho sản phẩm');
             if (!storeId) throw new Error('Vui lòng chọn cửa hàng trước khi tạo sản phẩm.');
             if (!localStorage.getItem('token')) {
                 throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
@@ -323,35 +325,33 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
                 throw new Error('Vui lòng điền đầy đủ tên và giá trị cho tất cả thông số kỹ thuật.');
             }
 
-            updateProgress(LoadingStage.UPLOADING_THUMBNAIL, 0, 1, 'Đang tải ảnh đại diện lên cloud...');
-            let thumbnailUrl = productImages[0]?.url || '';
-            if (productImages[0]?.file) {
-                thumbnailUrl = await uploadImage(productImages[0].file);
-                URL.revokeObjectURL(productImages[0].url);
-                setProductImages((prev) => {
-                    const newImages = [...prev];
-                    newImages[0] = {...newImages[0], url: thumbnailUrl, file: null};
-                    return newImages;
-                });
+            // Upload thumbnail image
+            updateProgress(LoadingStage.UPLOADING_THUMBNAIL, 0, 1, 'Đang tải ảnh bìa lên cloud...');
+            let thumbnailUrl = thumbnailImage?.url || '';
+            if (thumbnailImage?.file) {
+                thumbnailUrl = await uploadImage(thumbnailImage.file);
+                URL.revokeObjectURL(thumbnailImage.url);
+                setThumbnailImage({...thumbnailImage, url: thumbnailUrl, file: null});
             }
-            updateProgress(LoadingStage.UPLOADING_THUMBNAIL, 1, 1, 'Ảnh đại diện đã được tải lên thành công');
+            updateProgress(LoadingStage.UPLOADING_THUMBNAIL, 1, 1, 'Ảnh bìa đã được tải lên thành công');
 
-            const additionalImages = productImages.slice(1);
-            updateProgress(LoadingStage.UPLOADING_IMAGES, 0, additionalImages.length, 'Bắt đầu tải hình ảnh sản phẩm...');
+            // Upload product images
+            updateProgress(LoadingStage.UPLOADING_IMAGES, 0, productImages.length, 'Bắt đầu tải hình ảnh sản phẩm...');
             const imageUrls: string[] = [];
             const updatedImages: ImageFile[] = [...productImages];
-            for (let i = 0; i < additionalImages.length; i++) {
-                const image = additionalImages[i];
+            for (let i = 0; i < productImages.length; i++) {
+                const image = productImages[i];
                 const url = image.file ? await uploadImage(image.file) : image.url;
                 if (image.file) {
                     URL.revokeObjectURL(image.url);
                 }
                 imageUrls.push(url);
-                updatedImages[i + 1] = {...updatedImages[i + 1], url, file: null};
-                updateProgress(LoadingStage.UPLOADING_IMAGES, i + 1, additionalImages.length, `Đã tải ${i + 1}/${additionalImages.length} hình ảnh`);
+                updatedImages[i] = {...updatedImages[i], url, file: null};
+                updateProgress(LoadingStage.UPLOADING_IMAGES, i + 1, productImages.length, `Đã tải ${i + 1}/${productImages.length} hình ảnh`);
             }
             setProductImages(updatedImages);
 
+            // Upload video
             let videoUrl = productVideo?.url || '';
             if (productVideo?.file) {
                 updateProgress(LoadingStage.UPLOADING_VIDEO, 0, 1, 'Đang tải video sản phẩm lên cloud...');
@@ -396,7 +396,6 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
                     const file = descriptionFiles[i];
                     const url = await uploadImage(file);
                     descriptionImageUrls.push(url);
-                    // Không cần tạo/thu hồi URL blob mới ở đây
                     updateProgress(
                         LoadingStage.UPLOADING_DESCRIPTION_IMAGES,
                         i + 1,
@@ -421,7 +420,6 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
                     });
                     finalDescription = JSON.stringify(updatedDescription);
                 } catch (error) {
-                    // Xử lý lỗi tốt hơn: Không giả định AxiosError; ghi log lỗi thực tế
                     console.error('Lỗi xử lý mô tả:', error);
                     throw new Error((error as Error).message || 'Không thể xử lý dữ liệu mô tả sản phẩm');
                 }
@@ -484,7 +482,7 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
                     specificationName: spec.specificationName,
                     value: spec.value,
                 })),
-                images: additionalImages.map((image, index) => ({
+                images: productImages.map((image, index) => ({
                     id: image.file ? null : image.id,
                     imageUrl: imageUrls[index] || image.url,
                 })),
@@ -536,6 +534,8 @@ export const useProductFormLogic = ({editProductId, storeId, onSave}: UseProduct
         setProductImages,
         productVideo,
         setProductVideo,
+        thumbnailImage,
+        setThumbnailImage,
         productName,
         setProductName,
         selectedItemType,
